@@ -139,9 +139,16 @@ For example in the above if you didn't want to store the master password in the 
 {"master_username":"username", "master_password":"${MASTER_SHAREDPG_PASSWORD}", "host":"host", "port":"port", "engine":"postgres", "engine_version":"9.6.6"}
 ```
 
-## 4. Setup Task Worker
+### 4. Setup Task Worker
 
 You'll need to deploy one or multiple (depending on your load) task workers with the same config or settings specified in Step 1. but with a different startup command, append the `-background-tasks` option to the service brokers startup command to put it into worker mode.  You MUST have at least 1 worker.
 
 
+## Contributing and Building
+
+1. Fork
+2. Clone
+3. `dep ensuure`
+4. `make`
+5. `./servicebroker ...`
 
