@@ -46,13 +46,13 @@ Note almost all of these can be set via the command line as well.
 
 * `AWS_REGION` - The AWS region to provision databases in, only one aws provider and region are supported by the database broker.
 * `AWS_VPC_SECURITY_GROUPS` - The VPC security groups to automatically assign for all VPC instances, this overrides any plan settings and is recommended you set this in the environment.
-* `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` to an IAM role that has full access to RDS in the `AWS_REGION` you specified above.
+* `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` to an IAM role that has full access to RDS in the `AWS_REGION` you specified above.
 
 Note that you can get away with not setting `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` and use EC2 IAM roles or hard coded credentials via the `~/.aws/credentials` file but these are not recommended!
 
 **Shared Postgres Provider Specific**
 
-There are no environment variables for postgres, see plans
+There are no environment variables for shared postgres providers, although sensitive configuration can be set in the enivornment, see plans for more information. 
 
 **Optional**
 
@@ -62,3 +62,67 @@ There are no environment variables for postgres, see plans
 ### 2. Deployment
 
 You can deploy the image `akkeris/database-broker:lastest` via docker with the environment or config var settings above. If you decide you're going to build this manually and run it you'll need see the Building section below.  This is a 12-factor app and supports 
+
+### 3. Plans
+
+
+**AWS Provider Specific**
+
+Setting the provider specific private settings in the plan is important to do carefully as these settings are whats ACTUALLY created, you can use `${ENV_VAR_NAME}` to fill in any portion of the provider settings with an environment variable. Setting a value to null will request to use the default value from AWS. The description, type and allowed values for each of these types can be found here: https://docs.aws.amazon.com/sdk-for-go/api/service/rds/#CreateDBInstanceInput
+
+Note: the following fields should not be set and will always be overridden (so do not set them in the settings) `Tags`, `DBInstanceIdentifier`, `DBName`, `MasterUserPassword`, `MasterUsername`, `Engine`, `EngineVersion` and `VpcSecurityGroupIds`.  The `VpcSecurityGroupIds` are tied to region and must be set via `AWS_VPC_SECURITY_GROUPS`.
+
+***Sample AWS Provider Specific Settings***
+
+In this example 100 gb of storage and a `db.t2.medium` class server are provisioned. All other options use the default AWS settings provided.
+
+```
+{  
+   "AllocatedStorage":100,
+   "AutoMinorVersionUpgrade":null,
+   "AvailabilityZone":null,
+   "BackupRetentionPeriod":null,
+   "CharacterSetName":null,
+   "CopyTagsToSnapshot":null,
+   "DBClusterIdentifier":null,
+   "DBInstanceClass":"db.t2.medium",
+   "DBInstanceIdentifier":null,
+   "DBName":null,
+   "DBParameterGroupName":null,
+   "DBSecurityGroups":null,
+   "DBSubnetGroupName":null,
+   "Domain":null,
+   "DomainIAMRoleName":null,
+   "EnableCloudwatchLogsExports":null,
+   "EnableIAMDatabaseAuthentication":null,
+   "EnablePerformanceInsights":null,
+   "Engine":null,
+   "EngineVersion":null,
+   "Iops":null,
+   "KmsKeyId":null,
+   "LicenseModel":null,
+   "MasterUserPassword":null,
+   "MasterUsername":null,
+   "MonitoringInterval":null,
+   "MonitoringRoleArn":null,
+   "MultiAZ":null,
+   "OptionGroupName":null,
+   "PerformanceInsightsKMSKeyId":null,
+   "PerformanceInsightsRetentionPeriod":null,
+   "Port":null,
+   "PreferredBackupWindow":null,
+   "PreferredMaintenanceWindow":null,
+   "ProcessorFeatures":null,
+   "PromotionTier":null,
+   "PubliclyAccessible":null,
+   "StorageEncrypted":null,
+   "StorageType":null,
+   "Tags":null,
+   "TdeCredentialArn":null,
+   "TdeCredentialPassword":null,
+   "Timezone":null,
+   "VpcSecurityGroupIds":null
+}
+```
+
+

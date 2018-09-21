@@ -11,31 +11,6 @@ import (
 	"github.com/aws/aws-sdk-go/service/rds"
 )
 
-// provider=aws-instance in database
-// These values come out of the plans table provider_private_details column.
-type AWSInstanceProviderPrivatePlanSettings struct {
-	DBInstanceClass *string `json:"db_instance_class,omitempty"`
-	Engine string `json:"engine"`
-	EngineVersion string `json:"engine_version"`
-	AllocatedStorage *int64 `json:"allocated_storage,omitempty"`
-	MultiAZ *bool `json:"multi_az,omitempty"`
-	AutoMinorVersionUpgrade *bool `json:"auto_minor_version_upgrade,omitempty"`
-	PubliclyAccessible *bool `json:"publicaly_accessible,omitempty"`
-	Port *int64 `json:"port,omitempty"`
-	StorageEncrypted *bool `json:"storage_encrypted,omitempty"`
-	CopyTagsToSnapshot *bool `json:"copy_tags_to_snapshot,omitempty"`
-	BackupRetentionPeriod *int64 `json:"backup_retention_period,omitempty"`
-	EnablePerformanceInsights *bool `json:"enable_performance_insights,omitempty"`
-	PerformanceInsightsRetentionPeriod *int64 `json:"performance_insights_retention_period,omitempty"`
-	PerformanceInsightsKMSKeyId *int64 `json:"performance_insights_kms_key_id,omitempty"`
-	DBParameterGroupName *string `json:"dbparmaeter_group_name,omitempty"`
-	DBSubnetGroupName *string `json:"dbsubnet_group_name,omitempty"`
-	StorageType *string `json:"storage_type,omitempty"`
-	Iops *int64 `json:"iops,omitempty"`
-	KmsKeyId *string `json:"kms_key_id,omitempty"`
-}
-
-
 type AWSInstanceProvider struct {
 	Provider
 	awssvc *rds.RDS
@@ -52,7 +27,6 @@ func NewAWSInstanceProvider(namePrefix string) (AWSInstanceProvider, error) {
 		return AWSInstanceProvider{}, errors.New("Unable to find AWS_VPC_SECURITY_GROUPS environment variable.")
 	}
 	return AWSInstanceProvider{
-		region:os.Getenv("AWS_REGION"), // TODO: more elegantly handle this?
 		namePrefix:namePrefix,
 		awsVpcSecurityGroup:os.Getenv("AWS_VPC_SECURITY_GROUPS"),
 		awssvc:rds.New(session.New(&aws.Config{ Region: aws.String(os.Getenv("AWS_REGION")) })),
@@ -88,70 +62,35 @@ func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan)
 }
 
 func (provider AWSInstanceProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
-	var settings AWSInstanceProviderPrivatePlanSettings
+	var settings rds.CreateDBInstanceInput
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
 		return nil, err
 	}
 
-	db_name  := provider.namePrefix + RandomString(8)
-	username := "u" + RandomString(8)
-	password :=  RandomString(16)
+	settings.DBName 				= aws.String(provider.namePrefix + RandomString(8))
+	settings.DBInstanceIdentifier 	= settings.DBName
+	settings.MasterUsername 		= aws.String("u" + RandomString(8))
+	settings.MasterUserPassword 	= aws.String(RandomString(16))
+	settings.Tags					= []*rds.Tag{ { Key: aws.String("BillingCode"), Value: aws.String(Owner) } }
+	settings.VpcSecurityGroupIds	= []*string{ aws.String(provider.awsVpcSecurityGroup) }
 	
-	rdsInstance := rds.CreateDBInstanceInput{
-		DBInstanceClass:         	 settings.DBInstanceClass,
-		DBInstanceIdentifier:    	 aws.String(db_name),
-		Engine:                  	 aws.String(settings.Engine),
-		AllocatedStorage:        	 settings.AllocatedStorage,
-		AutoMinorVersionUpgrade: 	 settings.AutoMinorVersionUpgrade,
-		DBName:                  	 aws.String(db_name),
-		EngineVersion: 	         	 aws.String(settings.EngineVersion),
-		MasterUserPassword:      	 aws.String(password),
-		MasterUsername:          	 aws.String(username),
-		MultiAZ:                 	 settings.MultiAZ,
-		PubliclyAccessible:      	 settings.PubliclyAccessible,
-		Port:                 	 	 settings.Port,
-		StorageEncrypted:		 	 settings.StorageEncrypted,
-		CopyTagsToSnapshot: 		 settings.CopyTagsToSnapshot,
-		BackupRetentionPeriod:       settings.BackupRetentionPeriod,
-		EnablePerformanceInsights:   settings.EnablePerformanceInsights,
-		DBParameterGroupName:        settings.DBParameterGroupName,
-		DBSubnetGroupName:       	 settings.DBSubnetGroupName,
-		StorageType:				 settings.StorageType,
-		Iops:						 settings.Iops,
-		KmsKeyId:					 settings.KmsKeyId,
-		PerformanceInsightsKMSKeyId: settings.KmsKeyId,
-		Tags: []*rds.Tag{
-			{
-				Key:   aws.String("Name"),
-				Value: aws.String(db_name),
-			},
-			{
-				Key:   aws.String("BillingCode"),
-				Value: aws.String(Owner),
-			},
-		},
-		VpcSecurityGroupIds: []*string{
-			aws.String(provider.awsVpcSecurityGroup),
-		},
-	}
-
-	resp, err := provider.awssvc.CreateDBInstance(&rdsInstance)
+	resp, err := provider.awssvc.CreateDBInstance(&settings)
 	if err != nil {
 		return nil, err
 	}
 
 	var endpoint = ""
 	if resp.DBInstance.Endpoint != nil && resp.DBInstance.Endpoint.Port != nil && resp.DBInstance.Endpoint.Address != nil {
-		endpoint = *resp.DBInstance.Endpoint.Address + ":" + strconv.FormatInt(*resp.DBInstance.Endpoint.Port, 10) + "/" + db_name
+		endpoint = *resp.DBInstance.Endpoint.Address + ":" + strconv.FormatInt(*resp.DBInstance.Endpoint.Port, 10) + "/" + *settings.DBName
 	}
 
 	return &DbInstance{
 		Id:Id,
-		Name:db_name,
+		Name:*settings.DBName,
 		ProviderId:*resp.DBInstance.DBInstanceArn,
 		Plan:plan,
 		Username:*resp.DBInstance.MasterUsername,
-		Password:password,
+		Password:*settings.MasterUserPassword,
 		Endpoint:endpoint,
 		Status:*resp.DBInstance.DBInstanceStatus,
 		Ready:IsReady(*resp.DBInstance.DBInstanceStatus),
@@ -176,7 +115,7 @@ func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnap
 }
 
 func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *ProviderPlan) (*DbInstance, error) {
-	var settings AWSInstanceProviderPrivatePlanSettings
+	var settings rds.CreateDBInstanceInput
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
 		return nil, err
 	}
@@ -186,7 +125,7 @@ func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *Provide
 		ApplyImmediately:			aws.Bool(true),
 		DBInstanceClass:         	settings.DBInstanceClass,
 		DBInstanceIdentifier:    	aws.String(dbInstance.Name),
-		EngineVersion: 	         	aws.String(settings.EngineVersion),
+		EngineVersion: 	         	settings.EngineVersion,
 		MultiAZ:                 	settings.MultiAZ,
 		PubliclyAccessible:      	settings.PubliclyAccessible,
 		CopyTagsToSnapshot: 		settings.CopyTagsToSnapshot,
@@ -387,12 +326,11 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 	if dbInstance.Status != "available" {
 		return nil, errors.New("Replicas cannot be created for databases being created, under maintenance or destroyed.")
 	}
-	var settings AWSInstanceProviderPrivatePlanSettings
+	var settings rds.CreateDBInstanceInput
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
 		return nil, err
 	}
 
-	// TODO: Support creating read replicas in different regions?
 	rdsInstance := rds.CreateDBInstanceReadReplicaInput{
 		DBInstanceClass:         	settings.DBInstanceClass,
 		SourceDBInstanceIdentifier: aws.String(dbInstance.Name),
@@ -443,21 +381,13 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 }
 
 func (provider AWSInstanceProvider) GetReadReplica(dbInstance *DbInstance) (*DbInstance, error) {
-	// TODO: more sophisiticated lookup perhaps?
-	return &DbInstance{
-		Id:dbInstance.Name + "-ro",
-		Name:dbInstance.Name,
-		ProviderId:dbInstance.ProviderId,
-		Plan:dbInstance.Plan,
-		Username:dbInstance.Username,
-		Password:dbInstance.Password,
-		Endpoint:dbInstance.Endpoint,
-		Status:dbInstance.Status,
-		Ready:dbInstance.Ready,
-		Engine:dbInstance.Engine,
-		EngineVersion:dbInstance.EngineVersion,
-		Scheme:dbInstance.Scheme,
-	}, nil
+	rrDbInstance, err := provider.GetInstance(dbInstance.Name + "-ro", dbInstance.Plan)
+	if err != nil {
+		return nil, err
+	}
+	rrDbInstance.Username = dbInstance.Username
+	rrDbInstance.Password = dbInstance.Password
+	return rrDbInstance, nil
 }
 
 func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) (error) {
