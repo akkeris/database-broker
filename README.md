@@ -1,6 +1,6 @@
 # Akkeris Database Broker
 
-An open service broker 2.13 compliant database broker REST api.  Depending on provider it can provision postgres, mysql, aws aurora and hypothetically oracle and mssql (although not tested) databases. Can run without Akkeris, but why would you? 
+A database broker for a variety of cloud providers and even on-prem db systems that implements the Open Service Broker 2.13 compliant database broker REST API.  Depending on provider it can provision postgres, mysql, aws aurora and hypothetically oracle and mssql (although not tested) databases. It can also be ran without Akkeris, but why would you? 
 
 ## Providers
 
@@ -14,20 +14,12 @@ The broker has support for the following providers
 * Create your own plans
 * Upgrade plans
 * Take backups, list and restore
-* Create and delete read only replicas
-* Create and delete read only or read write accounts (roles)
-* Get database logs
+* Database Read-Only Replicas
+* Extra Database Accounts (read-only, read-write, create, remove, rotate password)
+* Database Logs
 * Restart
 * Preprovisioning databases for speed
 * Generate and issue KMS keys stored on fortanix
-
-## Open Service Broker Additions
-
-These describe non-standard features above/beyond what the OSB spec provides.
-
-1. Webhooks - During async operations for provisioning resources or requesting binding an additional `webhook` and `secret` can be used in the query parameters to be informed of when the asyncronous operation completes, the value `accepts_incomplete=true` MUST also be passed for this to work.  For more information on how this works see the proposal: https://github.com/openservicebrokerapi/servicebroker/issues/606. 
-2. Extensions (Actions) - This implements expiremental extention api's that are not yet standard but being implemented, see: https://github.com/openservicebrokerapi/servicebroker/pull/431
-3. Get Binding - a binding may be retrived using a `GET` operation in addition to created or deleted.  It returns the same payload as a PUT when syncronous, this is now part of the 2.14 standard.
 
 ## Installing
 
