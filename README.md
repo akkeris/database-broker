@@ -65,6 +65,9 @@ You can deploy the image `akkeris/database-broker:lastest` via docker with the e
 
 ### 3. Plans
 
+You can create new services and plans by provider by modifying the entries in its database. You can configure the plans and services how you wish.  By default the database broker will create 14 different postgres plans from AWS and a shared tenant system, feel free to update, delete and remove as needed.
+
+Open your favorite postgres client and connect to `$DATABASE_URL` above, ensure you've deployed the database broker before continuing. Each service and plan will be displayed to the user, the plans a provider specific and the column `provider_private_details` has different information depending on the provider for information on what should be in this column see the provider specific settings below. 
 
 **AWS Provider Specific**
 
@@ -125,4 +128,12 @@ In this example 100 gb of storage and a `db.t2.medium` class server are provisio
 }
 ```
 
+
+**Postgres Shared Specific Settings**
+
+Sort of self explanatory, the username and password MUST be the master account, otherwise provisioning will fail.
+
+```
+{"master_username":"username", "master_password":"password", "host":"host", "port":"port", "engine":"postgres", "engine_version":"9.6.6"}
+```
 
