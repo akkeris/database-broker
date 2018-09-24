@@ -16,14 +16,16 @@ jobs:
           name: Run tests
           command: |
             apk update --no-progress -q
-            apk add openssl ca-certificates git make build-base go --no-progress -q
+            apk add openssl ca-certificates git make build-base go node --no-progress -q
             wget https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64 -q -O /usr/bin/dep
             chmod +x /usr/bin/dep
             mkdir -p /go/src/github.com/akkeris/
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd /go/src/github.com/akkeris/database-broker
             GOROOT=/usr/lib/go GOPATH=/go dep ensure
-            GOROOT=/usr/lib/go GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test\?sslmode=disable NAME_PREFIX=testing make test
+            GOROOT=/usr/lib/go GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test\?sslmode=disable NAME_PREFIX=testing make cover
+            npm install codacy-coverage -g
+            cat cover.out | codacy-coverage
       - run:
           name: Build application docker image
           command: |
