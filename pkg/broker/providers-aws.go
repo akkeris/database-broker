@@ -1,24 +1,23 @@
 package broker
 
 import (
-	"os"
-	"errors"
-	"strconv"
-	"time"
-	"strings"
 	"encoding/json"
+	"errors"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds"
+	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 type AWSInstanceProvider struct {
 	Provider
-	awssvc *rds.RDS
-	namePrefix string
+	awssvc              *rds.RDS
+	namePrefix          string
 	awsVpcSecurityGroup string
 }
-
 
 func NewAWSInstanceProvider(namePrefix string) (AWSInstanceProvider, error) {
 	if os.Getenv("AWS_REGION") == "" {
@@ -28,9 +27,9 @@ func NewAWSInstanceProvider(namePrefix string) (AWSInstanceProvider, error) {
 		return AWSInstanceProvider{}, errors.New("Unable to find AWS_VPC_SECURITY_GROUPS environment variable.")
 	}
 	return AWSInstanceProvider{
-		namePrefix:namePrefix,
-		awsVpcSecurityGroup:os.Getenv("AWS_VPC_SECURITY_GROUPS"),
-		awssvc:rds.New(session.New(&aws.Config{ Region: aws.String(os.Getenv("AWS_REGION")) })),
+		namePrefix:          namePrefix,
+		awsVpcSecurityGroup: os.Getenv("AWS_VPC_SECURITY_GROUPS"),
+		awssvc:              rds.New(session.New(&aws.Config{Region: aws.String(os.Getenv("AWS_REGION"))})),
 	}, nil
 }
 
@@ -47,18 +46,18 @@ func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan)
 		endpoint = *resp.DBInstances[0].Endpoint.Address + ":" + strconv.FormatInt(*resp.DBInstances[0].Endpoint.Port, 10) + "/" + name
 	}
 	return &DbInstance{
-		Id:"",				// providers should not store this.
-		ProviderId:*resp.DBInstances[0].DBInstanceArn,
-		Name:name,
-		Plan:nil,
-		Username:"",		// providers should not store this.
-		Password:"",		// providers should not store this.
-		Endpoint:endpoint,
-		Status:*resp.DBInstances[0].DBInstanceStatus,
-		Ready:IsReady(*resp.DBInstances[0].DBInstanceStatus),
-		Engine:*resp.DBInstances[0].Engine, 
-		EngineVersion:*resp.DBInstances[0].EngineVersion,
-		Scheme:plan.Scheme,
+		Id:            "", // providers should not store this.
+		ProviderId:    *resp.DBInstances[0].DBInstanceArn,
+		Name:          name,
+		Plan:          nil,
+		Username:      "", // providers should not store this.
+		Password:      "", // providers should not store this.
+		Endpoint:      endpoint,
+		Status:        *resp.DBInstances[0].DBInstanceStatus,
+		Ready:         IsReady(*resp.DBInstances[0].DBInstanceStatus),
+		Engine:        *resp.DBInstances[0].Engine,
+		EngineVersion: *resp.DBInstances[0].EngineVersion,
+		Scheme:        plan.Scheme,
 	}, nil
 }
 
@@ -68,13 +67,13 @@ func (provider AWSInstanceProvider) Provision(Id string, plan *ProviderPlan, Own
 		return nil, err
 	}
 
-	settings.DBName 				= aws.String(strings.ToLower(provider.namePrefix + RandomString(8)))
-	settings.DBInstanceIdentifier 	= settings.DBName
-	settings.MasterUsername 		= aws.String(strings.ToLower("u" + RandomString(8)))
-	settings.MasterUserPassword 	= aws.String(RandomString(16))
-	settings.Tags					= []*rds.Tag{ { Key: aws.String("BillingCode"), Value: aws.String(Owner) } }
-	settings.VpcSecurityGroupIds	= []*string{ aws.String(provider.awsVpcSecurityGroup) }
-	
+	settings.DBName = aws.String(strings.ToLower(provider.namePrefix + RandomString(8)))
+	settings.DBInstanceIdentifier = settings.DBName
+	settings.MasterUsername = aws.String(strings.ToLower("u" + RandomString(8)))
+	settings.MasterUserPassword = aws.String(RandomString(16))
+	settings.Tags = []*rds.Tag{{Key: aws.String("BillingCode"), Value: aws.String(Owner)}}
+	settings.VpcSecurityGroupIds = []*string{aws.String(provider.awsVpcSecurityGroup)}
+
 	resp, err := provider.awssvc.CreateDBInstance(&settings)
 	if err != nil {
 		return nil, err
@@ -86,31 +85,31 @@ func (provider AWSInstanceProvider) Provision(Id string, plan *ProviderPlan, Own
 	}
 
 	return &DbInstance{
-		Id:Id,
-		Name:*settings.DBName,
-		ProviderId:*resp.DBInstance.DBInstanceArn,
-		Plan:plan,
-		Username:*resp.DBInstance.MasterUsername,
-		Password:*settings.MasterUserPassword,
-		Endpoint:endpoint,
-		Status:*resp.DBInstance.DBInstanceStatus,
-		Ready:IsReady(*resp.DBInstance.DBInstanceStatus),
-		Engine:*resp.DBInstance.Engine,
-		EngineVersion:*resp.DBInstance.EngineVersion,
-		Scheme:plan.Scheme,
+		Id:            Id,
+		Name:          *settings.DBName,
+		ProviderId:    *resp.DBInstance.DBInstanceArn,
+		Plan:          plan,
+		Username:      *resp.DBInstance.MasterUsername,
+		Password:      *settings.MasterUserPassword,
+		Endpoint:      endpoint,
+		Status:        *resp.DBInstance.DBInstanceStatus,
+		Ready:         IsReady(*resp.DBInstance.DBInstanceStatus),
+		Engine:        *resp.DBInstance.Engine,
+		EngineVersion: *resp.DBInstance.EngineVersion,
+		Scheme:        plan.Scheme,
 	}, nil
 }
 
-func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) (error) {
+func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
 
 	provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier:aws.String(dbInstance.Name + "-ro"),
-		SkipFinalSnapshot:aws.Bool(!takeSnapshot),
+		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
+		SkipFinalSnapshot:    aws.Bool(!takeSnapshot),
 	})
 	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier: aws.String(dbInstance.Name), 
+		DBInstanceIdentifier:      aws.String(dbInstance.Name),
 		FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
-		SkipFinalSnapshot:    aws.Bool(!takeSnapshot),
+		SkipFinalSnapshot:         aws.Bool(!takeSnapshot),
 	})
 	return err
 }
@@ -121,20 +120,20 @@ func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *Provide
 		return nil, err
 	}
 	rdsInstance := rds.ModifyDBInstanceInput{
-		AllocatedStorage:        	settings.AllocatedStorage,
-		AutoMinorVersionUpgrade: 	settings.AutoMinorVersionUpgrade,
-		ApplyImmediately:			aws.Bool(true),
-		DBInstanceClass:         	settings.DBInstanceClass,
-		DBInstanceIdentifier:    	aws.String(dbInstance.Name),
-		EngineVersion: 	         	settings.EngineVersion,
-		MultiAZ:                 	settings.MultiAZ,
-		PubliclyAccessible:      	settings.PubliclyAccessible,
-		CopyTagsToSnapshot: 		settings.CopyTagsToSnapshot,
-		BackupRetentionPeriod:      settings.BackupRetentionPeriod,
-		DBParameterGroupName: 		settings.DBParameterGroupName,
-		DBSubnetGroupName: 			settings.DBSubnetGroupName,
-		StorageType: 				settings.StorageType,
-		Iops: 						settings.Iops,
+		AllocatedStorage:        settings.AllocatedStorage,
+		AutoMinorVersionUpgrade: settings.AutoMinorVersionUpgrade,
+		ApplyImmediately:        aws.Bool(true),
+		DBInstanceClass:         settings.DBInstanceClass,
+		DBInstanceIdentifier:    aws.String(dbInstance.Name),
+		EngineVersion:           settings.EngineVersion,
+		MultiAZ:                 settings.MultiAZ,
+		PubliclyAccessible:      settings.PubliclyAccessible,
+		CopyTagsToSnapshot:      settings.CopyTagsToSnapshot,
+		BackupRetentionPeriod:   settings.BackupRetentionPeriod,
+		DBParameterGroupName:    settings.DBParameterGroupName,
+		DBSubnetGroupName:       settings.DBSubnetGroupName,
+		StorageType:             settings.StorageType,
+		Iops:                    settings.Iops,
 	}
 
 	resp, err := provider.awssvc.ModifyDBInstance(&rdsInstance)
@@ -150,26 +149,26 @@ func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *Provide
 	// TODO: What about replicas?
 
 	return &DbInstance{
-		Id:dbInstance.Id,
-		Name:dbInstance.Name,
-		ProviderId:*resp.DBInstance.DBInstanceArn,
-		Plan:plan,
-		Username:*resp.DBInstance.MasterUsername,
-		Password:dbInstance.Password,
-		Endpoint:endpoint,
-		Status:*resp.DBInstance.DBInstanceStatus,
-		Ready:IsReady(*resp.DBInstance.DBInstanceStatus),
-		Engine:*resp.DBInstance.Engine,
-		EngineVersion:*resp.DBInstance.EngineVersion,
-		Scheme:plan.Scheme,
+		Id:            dbInstance.Id,
+		Name:          dbInstance.Name,
+		ProviderId:    *resp.DBInstance.DBInstanceArn,
+		Plan:          plan,
+		Username:      *resp.DBInstance.MasterUsername,
+		Password:      dbInstance.Password,
+		Endpoint:      endpoint,
+		Status:        *resp.DBInstance.DBInstanceStatus,
+		Ready:         IsReady(*resp.DBInstance.DBInstanceStatus),
+		Engine:        *resp.DBInstance.Engine,
+		EngineVersion: *resp.DBInstance.EngineVersion,
+		Scheme:        plan.Scheme,
 	}, nil
 }
 
-func (provider AWSInstanceProvider) Tag(dbInstance *DbInstance, Name string, Value string) (error) {
+func (provider AWSInstanceProvider) Tag(dbInstance *DbInstance, Name string, Value string) error {
 	// TODO: Support multiple values of the same tag name, comma delimit them.
 	_, err := provider.awssvc.AddTagsToResource(&rds.AddTagsToResourceInput{
-		ResourceName:aws.String(dbInstance.ProviderId),
-		Tags:[]*rds.Tag{
+		ResourceName: aws.String(dbInstance.ProviderId),
+		Tags: []*rds.Tag{
 			{
 				Key:   aws.String(Name),
 				Value: aws.String(Value),
@@ -179,11 +178,11 @@ func (provider AWSInstanceProvider) Tag(dbInstance *DbInstance, Name string, Val
 	return err
 }
 
-func (provider AWSInstanceProvider) Untag(dbInstance *DbInstance, Name string) (error) {
+func (provider AWSInstanceProvider) Untag(dbInstance *DbInstance, Name string) error {
 	// TODO: Support multiple values of the same tag name, comma delimit them.
 	_, err := provider.awssvc.RemoveTagsFromResource(&rds.RemoveTagsFromResourceInput{
-		ResourceName:aws.String(dbInstance.ProviderId),
-		TagKeys:[]*string{
+		ResourceName: aws.String(dbInstance.ProviderId),
+		TagKeys: []*string{
 			aws.String(Name),
 		},
 	})
@@ -191,9 +190,9 @@ func (provider AWSInstanceProvider) Untag(dbInstance *DbInstance, Name string) (
 }
 
 func (provider AWSInstanceProvider) GetBackup(dbInstance *DbInstance, Id string) (DatabaseBackupSpec, error) {
-	snapshots, err := provider.awssvc.DescribeDBSnapshots(&rds.DescribeDBSnapshotsInput{ 
-		DBInstanceIdentifier:aws.String(dbInstance.Name),
-		DBSnapshotIdentifier:aws.String(Id),
+	snapshots, err := provider.awssvc.DescribeDBSnapshots(&rds.DescribeDBSnapshotsInput{
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		DBSnapshotIdentifier: aws.String(Id),
 	})
 	if err != nil {
 		return DatabaseBackupSpec{}, err
@@ -209,17 +208,17 @@ func (provider AWSInstanceProvider) GetBackup(dbInstance *DbInstance, Id string)
 
 	return DatabaseBackupSpec{
 		Database: DatabaseSpec{
-			Name:dbInstance.Name,
+			Name: dbInstance.Name,
 		},
-		Id:snapshots.DBSnapshots[0].DBSnapshotIdentifier,
-		Progress:snapshots.DBSnapshots[0].PercentProgress,
-		Status:snapshots.DBSnapshots[0].Status,
-		Created:created,
+		Id:       snapshots.DBSnapshots[0].DBSnapshotIdentifier,
+		Progress: snapshots.DBSnapshots[0].PercentProgress,
+		Status:   snapshots.DBSnapshots[0].Status,
+		Created:  created,
 	}, nil
 }
 
 func (provider AWSInstanceProvider) ListBackups(dbInstance *DbInstance) ([]DatabaseBackupSpec, error) {
-	snapshots, err := provider.awssvc.DescribeDBSnapshots(&rds.DescribeDBSnapshotsInput{ DBInstanceIdentifier:aws.String(dbInstance.Name) })
+	snapshots, err := provider.awssvc.DescribeDBSnapshots(&rds.DescribeDBSnapshotsInput{DBInstanceIdentifier: aws.String(dbInstance.Name)})
 	if err != nil {
 		return []DatabaseBackupSpec{}, err
 	}
@@ -231,12 +230,12 @@ func (provider AWSInstanceProvider) ListBackups(dbInstance *DbInstance) ([]Datab
 		}
 		out = append(out, DatabaseBackupSpec{
 			Database: DatabaseSpec{
-				Name:dbInstance.Name,
+				Name: dbInstance.Name,
 			},
-			Id:snapshot.DBSnapshotIdentifier,
-			Progress:snapshot.PercentProgress,
-			Status:snapshot.Status,
-			Created:created,
+			Id:       snapshot.DBSnapshotIdentifier,
+			Progress: snapshot.PercentProgress,
+			Status:   snapshot.Status,
+			Created:  created,
 		})
 	}
 	return out, nil
@@ -244,9 +243,9 @@ func (provider AWSInstanceProvider) ListBackups(dbInstance *DbInstance) ([]Datab
 
 func (provider AWSInstanceProvider) CreateBackup(dbInstance *DbInstance) (DatabaseBackupSpec, error) {
 	snapshot_name := (dbInstance.Name + "-manual-" + RandomString(10))
-	snapshot, err := provider.awssvc.CreateDBSnapshot(&rds.CreateDBSnapshotInput{ 
-		DBInstanceIdentifier:aws.String(dbInstance.Name),
-		DBSnapshotIdentifier:aws.String(snapshot_name),
+	snapshot, err := provider.awssvc.CreateDBSnapshot(&rds.CreateDBSnapshotInput{
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		DBSnapshotIdentifier: aws.String(snapshot_name),
 	})
 	if err != nil {
 		return DatabaseBackupSpec{}, err
@@ -258,37 +257,37 @@ func (provider AWSInstanceProvider) CreateBackup(dbInstance *DbInstance) (Databa
 
 	return DatabaseBackupSpec{
 		Database: DatabaseSpec{
-			Name:dbInstance.Name,
+			Name: dbInstance.Name,
 		},
-		Id:snapshot.DBSnapshot.DBSnapshotIdentifier,
-		Progress:snapshot.DBSnapshot.PercentProgress,
-		Status:snapshot.DBSnapshot.Status,
-		Created:created,
+		Id:       snapshot.DBSnapshot.DBSnapshotIdentifier,
+		Progress: snapshot.DBSnapshot.PercentProgress,
+		Status:   snapshot.DBSnapshot.Status,
+		Created:  created,
 	}, nil
 }
 
-func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id string) (error) {
-	_, err := provider.awssvc.RestoreDBInstanceFromDBSnapshot(&rds.RestoreDBInstanceFromDBSnapshotInput{ 
-		DBInstanceIdentifier:aws.String(dbInstance.Name),
-		DBSnapshotIdentifier:aws.String(Id),
+func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id string) error {
+	_, err := provider.awssvc.RestoreDBInstanceFromDBSnapshot(&rds.RestoreDBInstanceFromDBSnapshotInput{
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		DBSnapshotIdentifier: aws.String(Id),
 	})
 	return err
 }
 
-func (provider AWSInstanceProvider) Restart(dbInstance *DbInstance) (error) {
+func (provider AWSInstanceProvider) Restart(dbInstance *DbInstance) error {
 	_, err := provider.awssvc.RebootDBInstance(&rds.RebootDBInstanceInput{
-		DBInstanceIdentifier:aws.String(dbInstance.Name),
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
 	})
 	return err
 }
 
 func (provider AWSInstanceProvider) ListLogs(dbInstance *DbInstance) ([]DatabaseLogs, error) {
-	var fileLastWritten int64 = time.Now().AddDate(0,0,-7).Unix()
+	var fileLastWritten int64 = time.Now().AddDate(0, 0, -7).Unix()
 	var maxRecords int64 = 100
 	logs, err := provider.awssvc.DescribeDBLogFiles(&rds.DescribeDBLogFilesInput{
-	    DBInstanceIdentifier:aws.String(dbInstance.Name),
-	    FileLastWritten:&fileLastWritten,
-	    MaxRecords:&maxRecords,
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		FileLastWritten:      &fileLastWritten,
+		MaxRecords:           &maxRecords,
 	})
 	if err != nil {
 		return []DatabaseLogs{}, err
@@ -300,9 +299,9 @@ func (provider AWSInstanceProvider) ListLogs(dbInstance *DbInstance) ([]Database
 			updated = time.Unix(*log.LastWritten/1000, 0).UTC().Format(time.RFC3339)
 		}
 		out = append(out, DatabaseLogs{
-			Name:log.LogFileName,
-			Size:log.Size,
-			Updated:updated,
+			Name:    log.LogFileName,
+			Size:    log.Size,
+			Updated: updated,
 		})
 	}
 	return out, nil
@@ -310,8 +309,8 @@ func (provider AWSInstanceProvider) ListLogs(dbInstance *DbInstance) ([]Database
 
 func (provider AWSInstanceProvider) GetLogs(dbInstance *DbInstance, path string) (string, error) {
 	data, err := provider.awssvc.DownloadDBLogFilePortion(&rds.DownloadDBLogFilePortionInput{
-		DBInstanceIdentifier:&dbInstance.Name,
-		LogFileName:&path,
+		DBInstanceIdentifier: &dbInstance.Name,
+		LogFileName:          &path,
 	})
 	if err != nil {
 		return "", err
@@ -333,20 +332,20 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 	}
 
 	rdsInstance := rds.CreateDBInstanceReadReplicaInput{
-		DBInstanceClass:         	settings.DBInstanceClass,
-		SourceDBInstanceIdentifier: aws.String(dbInstance.Name),
-		DBInstanceIdentifier:    	aws.String(dbInstance.Name + "-ro"),
-		AutoMinorVersionUpgrade: 	settings.AutoMinorVersionUpgrade,
-		MultiAZ:                 	settings.MultiAZ,
-		PubliclyAccessible:      	settings.PubliclyAccessible,
-		Port:                 	 	settings.Port,
-		CopyTagsToSnapshot: 		settings.CopyTagsToSnapshot,
-		KmsKeyId:					settings.KmsKeyId,
-		DBSubnetGroupName:       	settings.DBSubnetGroupName,
-		EnablePerformanceInsights:  settings.EnablePerformanceInsights,
-		PerformanceInsightsKMSKeyId:settings.KmsKeyId,
-		StorageType:				settings.StorageType,
-		Iops:						settings.Iops,
+		DBInstanceClass:             settings.DBInstanceClass,
+		SourceDBInstanceIdentifier:  aws.String(dbInstance.Name),
+		DBInstanceIdentifier:        aws.String(dbInstance.Name + "-ro"),
+		AutoMinorVersionUpgrade:     settings.AutoMinorVersionUpgrade,
+		MultiAZ:                     settings.MultiAZ,
+		PubliclyAccessible:          settings.PubliclyAccessible,
+		Port:                        settings.Port,
+		CopyTagsToSnapshot:          settings.CopyTagsToSnapshot,
+		KmsKeyId:                    settings.KmsKeyId,
+		DBSubnetGroupName:           settings.DBSubnetGroupName,
+		EnablePerformanceInsights:   settings.EnablePerformanceInsights,
+		PerformanceInsightsKMSKeyId: settings.KmsKeyId,
+		StorageType:                 settings.StorageType,
+		Iops:                        settings.Iops,
 		Tags: []*rds.Tag{
 			{
 				Key:   aws.String("Name"),
@@ -366,23 +365,23 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 	}
 
 	return &DbInstance{
-		Id:dbInstance.Name + "-ro",
-		Name:dbInstance.Name,
-		ProviderId:*resp.DBInstance.DBInstanceArn,
-		Plan:dbInstance.Plan,
-		Username:*resp.DBInstance.MasterUsername,
-		Password:dbInstance.Password,
-		Endpoint:endpoint,
-		Status:*resp.DBInstance.DBInstanceStatus,
-		Ready:IsReady(*resp.DBInstance.DBInstanceStatus),
-		Engine:*resp.DBInstance.Engine,
-		EngineVersion:*resp.DBInstance.EngineVersion,
-		Scheme:dbInstance.Scheme,
+		Id:            dbInstance.Name + "-ro",
+		Name:          dbInstance.Name,
+		ProviderId:    *resp.DBInstance.DBInstanceArn,
+		Plan:          dbInstance.Plan,
+		Username:      *resp.DBInstance.MasterUsername,
+		Password:      dbInstance.Password,
+		Endpoint:      endpoint,
+		Status:        *resp.DBInstance.DBInstanceStatus,
+		Ready:         IsReady(*resp.DBInstance.DBInstanceStatus),
+		Engine:        *resp.DBInstance.Engine,
+		EngineVersion: *resp.DBInstance.EngineVersion,
+		Scheme:        dbInstance.Scheme,
 	}, nil
 }
 
 func (provider AWSInstanceProvider) GetReadReplica(dbInstance *DbInstance) (*DbInstance, error) {
-	rrDbInstance, err := provider.GetInstance(dbInstance.Name + "-ro", dbInstance.Plan)
+	rrDbInstance, err := provider.GetInstance(dbInstance.Name+"-ro", dbInstance.Plan)
 	if err != nil {
 		return nil, err
 	}
@@ -391,10 +390,10 @@ func (provider AWSInstanceProvider) GetReadReplica(dbInstance *DbInstance) (*DbI
 	return rrDbInstance, nil
 }
 
-func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) (error) {
+func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) error {
 	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier:aws.String(dbInstance.Name),
-		SkipFinalSnapshot:aws.Bool(false),
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		SkipFinalSnapshot:    aws.Bool(false),
 	})
 	return err
 }
@@ -403,7 +402,7 @@ func (provider AWSInstanceProvider) CreateReadOnlyUser(dbInstance *DbInstance) (
 	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Username, dbInstance.Password)
 }
 
-func (provider AWSInstanceProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) (error) {
+func (provider AWSInstanceProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
 	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Username, dbInstance.Password, role)
 }
 

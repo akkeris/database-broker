@@ -1,18 +1,18 @@
 package broker
 
 import (
-    "strings"
-    "context"
-    "database/sql"
-    _ "github.com/lib/pq"
-    "os"
-    "time"
-    "os/signal"
-    "syscall"
-    "errors"
-    "github.com/golang/glog"
-    osb "github.com/pmorie/go-open-service-broker-client/v2"
-    "encoding/json"
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"github.com/golang/glog"
+	_ "github.com/lib/pq"
+	osb "github.com/pmorie/go-open-service-broker-client/v2"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 )
 
 const plansQuery string = `
@@ -253,362 +253,358 @@ begin
     end if;
 end
 $$
-`;
-
+`
 
 func cancelOnInterrupt(ctx context.Context, db *sql.DB) {
-    term := make(chan os.Signal)
-    signal.Notify(term, os.Interrupt, syscall.SIGTERM)
+	term := make(chan os.Signal)
+	signal.Notify(term, os.Interrupt, syscall.SIGTERM)
 
-    for {
-        select {
-        case <-term:
-            db.Close()
-        case <-ctx.Done():
-            db.Close()
-        }
-    }
+	for {
+		select {
+		case <-term:
+			db.Close()
+		case <-ctx.Done():
+			db.Close()
+		}
+	}
 }
 
 type Storage interface {
-    GetPlans(string) ([]ProviderPlan, error)
-    GetPlanByID(string) (*ProviderPlan, error)
-    GetReplicas(*DbInstance) (DatabaseUrlSpec, error)
-    HasReplicas(*DbInstance) (int64, error)
-    AddReplica(*DbInstance) (error)
-    DeleteReplica(*DbInstance) (error)
-    ListRoles(*DbInstance) ([]DatabaseUrlSpec, error)
-    GetRole(*DbInstance, string) (DatabaseUrlSpec, error)
-    AddRole(*DbInstance, string, string) (error)
-    UpdateRole(*DbInstance, string, string) (error)
-    HasRole(*DbInstance, string) (int64, error)
-    DeleteRole(*DbInstance, string) (error)
-    GetInstance(string) (*DbEntry, error)
-    AddInstance(*DbInstance) (error)
-    DeleteInstance(*DbInstance) (error)
-    UpdateInstance(*DbInstance, string) (error)
-    AddTask(string, TaskAction, string) (string, error)
-    GetServices() ([]osb.Service, error)
-    UpdateTask(string, *string, *int64, *string, *string, *time.Time, *time.Time) (error)
-    PopPendingTask() (*Task, error)
-    GetUnclaimedInstance(string, string) (*DbEntry, error)
-    ReturnClaimedInstance(string) (error)
-    StartProvisioningTasks() ([]DbEntry, error)
-    NukeInstance(string) (error)
-    WarnOnUnfinishedTasks()
+	GetPlans(string) ([]ProviderPlan, error)
+	GetPlanByID(string) (*ProviderPlan, error)
+	GetReplicas(*DbInstance) (DatabaseUrlSpec, error)
+	HasReplicas(*DbInstance) (int64, error)
+	AddReplica(*DbInstance) error
+	DeleteReplica(*DbInstance) error
+	ListRoles(*DbInstance) ([]DatabaseUrlSpec, error)
+	GetRole(*DbInstance, string) (DatabaseUrlSpec, error)
+	AddRole(*DbInstance, string, string) error
+	UpdateRole(*DbInstance, string, string) error
+	HasRole(*DbInstance, string) (int64, error)
+	DeleteRole(*DbInstance, string) error
+	GetInstance(string) (*DbEntry, error)
+	AddInstance(*DbInstance) error
+	DeleteInstance(*DbInstance) error
+	UpdateInstance(*DbInstance, string) error
+	AddTask(string, TaskAction, string) (string, error)
+	GetServices() ([]osb.Service, error)
+	UpdateTask(string, *string, *int64, *string, *string, *time.Time, *time.Time) error
+	PopPendingTask() (*Task, error)
+	GetUnclaimedInstance(string, string) (*DbEntry, error)
+	ReturnClaimedInstance(string) error
+	StartProvisioningTasks() ([]DbEntry, error)
+	NukeInstance(string) error
+	WarnOnUnfinishedTasks()
 }
 
 type PostgresStorage struct {
-    Storage
-    db *sql.DB
+	Storage
+	db *sql.DB
 }
 
 func (b *PostgresStorage) getPlans(subquery string, arg string) ([]ProviderPlan, error) {
-    // arg could be a service ID or Plan Id
-    rows, err := b.db.Query(plansQuery + subquery, arg)
-    if err != nil {
-        glog.Errorf("GetPlans query failed: %s\n", err.Error())
-        return nil, err
-    }
-    defer rows.Close()
-    plans := make([]ProviderPlan, 0)
-    for rows.Next() {
-        var planId, serviceId, serviceName, name, humanName, description, engineVersion, engineType, scheme, categories, costUnits, provider, attributes, providerPrivateDetails string
-        var costInCents, preprovision int
-        var beta, deprecated, installInsidePrivateNetwork, installOutsidePrivateNetwork, supportsMultipleInstallations, supportsSharing bool
-        var created, updated time.Time
+	// arg could be a service ID or Plan Id
+	rows, err := b.db.Query(plansQuery+subquery, arg)
+	if err != nil {
+		glog.Errorf("GetPlans query failed: %s\n", err.Error())
+		return nil, err
+	}
+	defer rows.Close()
+	plans := make([]ProviderPlan, 0)
+	for rows.Next() {
+		var planId, serviceId, serviceName, name, humanName, description, engineVersion, engineType, scheme, categories, costUnits, provider, attributes, providerPrivateDetails string
+		var costInCents, preprovision int
+		var beta, deprecated, installInsidePrivateNetwork, installOutsidePrivateNetwork, supportsMultipleInstallations, supportsSharing bool
+		var created, updated time.Time
 
-        err := rows.Scan(&planId, &serviceId, &serviceName, &name, &humanName, &description, &engineVersion, &engineType, &scheme, &categories, &costInCents, &costUnits, &attributes, &installInsidePrivateNetwork, &installOutsidePrivateNetwork, &supportsMultipleInstallations, &supportsSharing, &preprovision, &beta, &provider, &providerPrivateDetails, &deprecated)
-        if err != nil {
-            glog.Errorf("Scan from query failed: %s\n", err.Error())
-            return nil, err
-        }
-        var free = falsePtr()
-        if costInCents == 0 {
-            free = truePtr()
-        }
+		err := rows.Scan(&planId, &serviceId, &serviceName, &name, &humanName, &description, &engineVersion, &engineType, &scheme, &categories, &costInCents, &costUnits, &attributes, &installInsidePrivateNetwork, &installOutsidePrivateNetwork, &supportsMultipleInstallations, &supportsSharing, &preprovision, &beta, &provider, &providerPrivateDetails, &deprecated)
+		if err != nil {
+			glog.Errorf("Scan from query failed: %s\n", err.Error())
+			return nil, err
+		}
+		var free = falsePtr()
+		if costInCents == 0 {
+			free = truePtr()
+		}
 
-        var attributesJson map[string]interface{}
-        if err = json.Unmarshal([]byte(attributes), &attributesJson); err != nil {
-            glog.Errorf("Unable to unmarshal attributes in plans query: %s\n", err.Error())
-            return nil, err
-        }
-        var state = "ga"
-        if beta == true {
-            state = "beta"
-        }
-        if deprecated == true {
-            state = "deprecated"
-        }
-        plans = append(plans, ProviderPlan{
-            basePlan:osb.Plan{
-                ID:          planId,
-                Name:        name,
-                Description: description,
-                Free:        free,
-                Schemas: &osb.Schemas{
-                    ServiceInstance: &osb.ServiceInstanceSchema{
-                        Create: &osb.InputParametersSchema{},
-                    },
-                },
-                Metadata: map[string]interface{}{
-                    "addon_service":map[string]interface{}{
-                        "id":serviceId,
-                        "name":serviceName,
-                    },
-                    "created_at":created,
-                    "description":description,
-                    "human_name":humanName,
-                    "id":planId,
-                    "installable_inside_private_network":installInsidePrivateNetwork,
-                    "installable_outside_private_network":installOutsidePrivateNetwork,
-                    "name":serviceName + ":" + name,
-                    "key":name,
-                    "price":map[string]interface{}{
-                        "cents":costInCents,
-                        "unit":costUnits,
-                    },
-                    "compliance":[]interface{}{},
-                    "space_default":false,
-                    "state":state,
-                    "attributes":attributesJson,
-                    "updated_at":updated,
-                },
-            },
-            Provider:GetProvidersFromString(provider),
-            Scheme:scheme,
-            providerPrivateDetails:os.ExpandEnv(providerPrivateDetails),
-            ID:planId,
-        })
-    }
-    return plans, nil
+		var attributesJson map[string]interface{}
+		if err = json.Unmarshal([]byte(attributes), &attributesJson); err != nil {
+			glog.Errorf("Unable to unmarshal attributes in plans query: %s\n", err.Error())
+			return nil, err
+		}
+		var state = "ga"
+		if beta == true {
+			state = "beta"
+		}
+		if deprecated == true {
+			state = "deprecated"
+		}
+		plans = append(plans, ProviderPlan{
+			basePlan: osb.Plan{
+				ID:          planId,
+				Name:        name,
+				Description: description,
+				Free:        free,
+				Schemas: &osb.Schemas{
+					ServiceInstance: &osb.ServiceInstanceSchema{
+						Create: &osb.InputParametersSchema{},
+					},
+				},
+				Metadata: map[string]interface{}{
+					"addon_service": map[string]interface{}{
+						"id":   serviceId,
+						"name": serviceName,
+					},
+					"created_at":                          created,
+					"description":                         description,
+					"human_name":                          humanName,
+					"id":                                  planId,
+					"installable_inside_private_network":  installInsidePrivateNetwork,
+					"installable_outside_private_network": installOutsidePrivateNetwork,
+					"name":                                serviceName + ":" + name,
+					"key":                                 name,
+					"price": map[string]interface{}{
+						"cents": costInCents,
+						"unit":  costUnits,
+					},
+					"compliance":    []interface{}{},
+					"space_default": false,
+					"state":         state,
+					"attributes":    attributesJson,
+					"updated_at":    updated,
+				},
+			},
+			Provider:               GetProvidersFromString(provider),
+			Scheme:                 scheme,
+			providerPrivateDetails: os.ExpandEnv(providerPrivateDetails),
+			ID:                     planId,
+		})
+	}
+	return plans, nil
 }
 
 func (b *PostgresStorage) GetServices() ([]osb.Service, error) {
-    services := make([]osb.Service, 0)
+	services := make([]osb.Service, 0)
 
-    rows, err := b.db.Query(servicesQuery)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	rows, err := b.db.Query(servicesQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    for rows.Next() {
-        var service_id, service_name, plan_human_name, plan_description, plan_categories, plan_image string
-        var beta, deprecated bool
-        err = rows.Scan(&service_id, &service_name, &plan_human_name, &plan_description, &plan_categories, &plan_image, &beta, &deprecated)
-        if err != nil {
-            return nil, err
-        }
+	for rows.Next() {
+		var service_id, service_name, plan_human_name, plan_description, plan_categories, plan_image string
+		var beta, deprecated bool
+		err = rows.Scan(&service_id, &service_name, &plan_human_name, &plan_description, &plan_categories, &plan_image, &beta, &deprecated)
+		if err != nil {
+			return nil, err
+		}
 
-        plans, err := b.GetPlans(service_id)
-        if err != nil {
-            glog.Errorf("Unable to get RDS plans: %s\n",  err.Error())
-            return nil, InternalServerError()
-        }
-        
-        osbPlans := make([]osb.Plan, 0)
-        for _, plan := range plans {
-            osbPlans = append(osbPlans, plan.basePlan)
-        }
-        services = append(services, osb.Service{
-            Name:                   service_name,
-            ID:                     service_id,
-            Description:            plan_description,
-            Bindable:               true,
-            BindingsRetrievable:    true,
-            PlanUpdatable:          truePtr(), 
-            Tags:                   strings.Split(plan_categories, ","),
-            Metadata:               map[string]interface{}{
-                "name":             plan_human_name,
-                "image":            plan_image,
-            },
-            Plans:osbPlans,
-        })
-    }
-    return services, nil
+		plans, err := b.GetPlans(service_id)
+		if err != nil {
+			glog.Errorf("Unable to get RDS plans: %s\n", err.Error())
+			return nil, InternalServerError()
+		}
+
+		osbPlans := make([]osb.Plan, 0)
+		for _, plan := range plans {
+			osbPlans = append(osbPlans, plan.basePlan)
+		}
+		services = append(services, osb.Service{
+			Name:                service_name,
+			ID:                  service_id,
+			Description:         plan_description,
+			Bindable:            true,
+			BindingsRetrievable: true,
+			PlanUpdatable:       truePtr(),
+			Tags:                strings.Split(plan_categories, ","),
+			Metadata: map[string]interface{}{
+				"name":  plan_human_name,
+				"image": plan_image,
+			},
+			Plans: osbPlans,
+		})
+	}
+	return services, nil
 }
 
 func (b *PostgresStorage) GetPlanByID(planId string) (*ProviderPlan, error) {
-    plans, err := b.getPlans(" and plans.plan::varchar(1024) = $1::varchar(1024)", planId)
-    if err != nil {
-        return nil, err
-    }
-    if len(plans) == 0 {
-        return nil, errors.New("Not found")
-    }
-    return &plans[0], nil
+	plans, err := b.getPlans(" and plans.plan::varchar(1024) = $1::varchar(1024)", planId)
+	if err != nil {
+		return nil, err
+	}
+	if len(plans) == 0 {
+		return nil, errors.New("Not found")
+	}
+	return &plans[0], nil
 }
 
 func (b *PostgresStorage) GetPlans(serviceId string) ([]ProviderPlan, error) {
-    return b.getPlans(" and services.service::varchar(1024) = $1::varchar(1024)", serviceId)
+	return b.getPlans(" and services.service::varchar(1024) = $1::varchar(1024)", serviceId)
 }
 
 func (b *PostgresStorage) GetReplicas(dbInstance *DbInstance) (DatabaseUrlSpec, error) {
-    var username, password, endpoint string
-    err := b.db.QueryRow("select username, password, endpoint from replicas where database = $1 and deleted = false", dbInstance.Id).Scan(&username, &password, &endpoint)
-    return DatabaseUrlSpec{
-        Username:username,
-        Password:password,
-        Endpoint:endpoint,
-        Plan:dbInstance.Plan.ID,
-    }, err
+	var username, password, endpoint string
+	err := b.db.QueryRow("select username, password, endpoint from replicas where database = $1 and deleted = false", dbInstance.Id).Scan(&username, &password, &endpoint)
+	return DatabaseUrlSpec{
+		Username: username,
+		Password: password,
+		Endpoint: endpoint,
+		Plan:     dbInstance.Plan.ID,
+	}, err
 }
 
 func (b *PostgresStorage) HasReplicas(dbInstance *DbInstance) (int64, error) {
-    var amount int64
-    err := b.db.QueryRow("select count(*) from replicas where database = $1 and deleted = false", dbInstance.Id).Scan(&amount)
-    return amount, err
+	var amount int64
+	err := b.db.QueryRow("select count(*) from replicas where database = $1 and deleted = false", dbInstance.Id).Scan(&amount)
+	return amount, err
 }
 
-func (b *PostgresStorage) AddReplica(dbInstance *DbInstance) (error) {
-    _, err := b.db.Exec("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), $1, $2, $3, true, $4, false, '', now(), $5, $6, $7)", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
-    return err
+func (b *PostgresStorage) AddReplica(dbInstance *DbInstance) error {
+	_, err := b.db.Exec("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), $1, $2, $3, true, $4, false, '', now(), $5, $6, $7)", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
+	return err
 }
 
-func (b *PostgresStorage) DeleteReplica(dbInstance *DbInstance) (error) {
-    _, err := b.db.Exec("update replicas set deleted = true where id = $1", dbInstance.Id)
-    return err
+func (b *PostgresStorage) DeleteReplica(dbInstance *DbInstance) error {
+	_, err := b.db.Exec("update replicas set deleted = true where id = $1", dbInstance.Id)
+	return err
 }
 
 func (b *PostgresStorage) ListRoles(dbInstance *DbInstance) ([]DatabaseUrlSpec, error) {
-    rows, err := b.db.Query("SELECT username, passwd FROM roles where database = $1 and deleted = false", dbInstance.Name)
-    if err != nil {
-        return []DatabaseUrlSpec{}, err
-    }
-    defer rows.Close()
-    var roles []DatabaseUrlSpec
-    for rows.Next() {
-        var role DatabaseUrlSpec
-        role.Endpoint = dbInstance.Endpoint
-        if err := rows.Scan(&role.Username, &role.Password); err != nil {
-            return []DatabaseUrlSpec{}, err
-        }
-        roles = append(roles, role)
-    }
-    return roles, nil
+	rows, err := b.db.Query("SELECT username, passwd FROM roles where database = $1 and deleted = false", dbInstance.Name)
+	if err != nil {
+		return []DatabaseUrlSpec{}, err
+	}
+	defer rows.Close()
+	var roles []DatabaseUrlSpec
+	for rows.Next() {
+		var role DatabaseUrlSpec
+		role.Endpoint = dbInstance.Endpoint
+		if err := rows.Scan(&role.Username, &role.Password); err != nil {
+			return []DatabaseUrlSpec{}, err
+		}
+		roles = append(roles, role)
+	}
+	return roles, nil
 }
 
 func (b *PostgresStorage) GetRole(dbInstance *DbInstance, r string) (DatabaseUrlSpec, error) {
-    var role DatabaseUrlSpec
-    role.Endpoint = dbInstance.Endpoint
-    err := b.db.QueryRow("SELECT username, password FROM roles where database = $1 and username = $2 and deleted = false", dbInstance.Name, r).Scan(&role.Username, &role.Password)
-    return role, err
+	var role DatabaseUrlSpec
+	role.Endpoint = dbInstance.Endpoint
+	err := b.db.QueryRow("SELECT username, password FROM roles where database = $1 and username = $2 and deleted = false", dbInstance.Name, r).Scan(&role.Username, &role.Password)
+	return role, err
 }
 
-func (b *PostgresStorage) AddRole(dbInstance *DbInstance, username string, password string) (error) {
-    _, err := b.db.Exec("insert into roles (database, username, password, read_only) values ($1, $2, $3, $4)", dbInstance.Name, username, password, true)
-    return err
+func (b *PostgresStorage) AddRole(dbInstance *DbInstance, username string, password string) error {
+	_, err := b.db.Exec("insert into roles (database, username, password, read_only) values ($1, $2, $3, $4)", dbInstance.Name, username, password, true)
+	return err
 }
 
-func (b *PostgresStorage) UpdateRole(dbInstance *DbInstance, username string, password string) (error) {
-    _, err := b.db.Exec("update roles set password=$3 where database = $1 and username = $2", dbInstance.Name, username, password)
-    return err
+func (b *PostgresStorage) UpdateRole(dbInstance *DbInstance, username string, password string) error {
+	_, err := b.db.Exec("update roles set password=$3 where database = $1 and username = $2", dbInstance.Name, username, password)
+	return err
 }
 
 func (b *PostgresStorage) HasRole(dbInstance *DbInstance, username string) (int64, error) {
-    var count int64
-    err := b.db.QueryRow("select count(*) from roles where database = $1 and username = $2 and deleted = false", dbInstance.Name, username).Scan(&count)
-    return count, err
+	var count int64
+	err := b.db.QueryRow("select count(*) from roles where database = $1 and username = $2 and deleted = false", dbInstance.Name, username).Scan(&count)
+	return count, err
 }
 
-func (b *PostgresStorage) DeleteRole(dbInstance *DbInstance, username string) (error) {
-    _, err := b.db.Exec("update roles set delete = true where database = $1 and username = $2", dbInstance.Name, username)
-    return err
+func (b *PostgresStorage) DeleteRole(dbInstance *DbInstance, username string) error {
+	_, err := b.db.Exec("update roles set delete = true where database = $1 and username = $2", dbInstance.Name, username)
+	return err
 }
 
 func (b *PostgresStorage) GetUnclaimedInstance(PlanId string, InstanceId string) (*DbEntry, error) {
-    tx, err := b.db.Begin()
-    if err != nil {
-        return nil, err
-    }
-    var entry DbEntry
-    err = tx.QueryRow("select id, name, plan, claimed, status, username, password, endpoint from databases where claimed = false and status = 'available' and deleted = false and id != $1 and plan = $2 limit 1", InstanceId, PlanId).Scan(&entry.Id, &entry.Name, &entry.PlanId, &entry.Claimed, &entry.Status, &entry.Username, &entry.Password, &entry.Endpoint)
-    if err != nil && err.Error() == "sql: no rows in result set" {
-        tx.Rollback()
-        return nil, errors.New("Cannot find database instance")
-    } else if err != nil {
-        tx.Rollback()
-        return nil, err
-    }
+	tx, err := b.db.Begin()
+	if err != nil {
+		return nil, err
+	}
+	var entry DbEntry
+	err = tx.QueryRow("select id, name, plan, claimed, status, username, password, endpoint from databases where claimed = false and status = 'available' and deleted = false and id != $1 and plan = $2 limit 1", InstanceId, PlanId).Scan(&entry.Id, &entry.Name, &entry.PlanId, &entry.Claimed, &entry.Status, &entry.Username, &entry.Password, &entry.Endpoint)
+	if err != nil && err.Error() == "sql: no rows in result set" {
+		tx.Rollback()
+		return nil, errors.New("Cannot find database instance")
+	} else if err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
-    if _, err = tx.Exec("insert into databases (id, name, plan, claimed, status, username, password, endpoint) values ($1, $2, $3, true, $4, $5, $6, $7)", InstanceId, entry.Name, entry.PlanId, entry.Status, entry.Username, entry.Password, entry.Endpoint); err != nil {
-        tx.Rollback()
-        return nil, err
-    }
-    
-    if  _, err = tx.Exec("update tasks set database = $2 where database = $1 and deleted = false", entry.Id, InstanceId); err != nil {
-        tx.Rollback()
-        return nil, err
-    }
+	if _, err = tx.Exec("insert into databases (id, name, plan, claimed, status, username, password, endpoint) values ($1, $2, $3, true, $4, $5, $6, $7)", InstanceId, entry.Name, entry.PlanId, entry.Status, entry.Username, entry.Password, entry.Endpoint); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
-     
-    if _, err = tx.Exec("update roles set database = $2 where database = $1 and deleted = false", entry.Id, InstanceId); err != nil {
-        tx.Rollback()
-        return nil, err
-    }
+	if _, err = tx.Exec("update tasks set database = $2 where database = $1 and deleted = false", entry.Id, InstanceId); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
-     
-    if _, err = tx.Exec("update replicas set database = $2 where database = $1 and deleted = false", entry.Id, InstanceId); err != nil {
-        tx.Rollback()
-        return nil, err
-    }
+	if _, err = tx.Exec("update roles set database = $2 where database = $1 and deleted = false", entry.Id, InstanceId); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
-    
-    if _, err = tx.Exec("delete from databases where id = $1 and deleted = false and claimed = false", entry.Id); err != nil {
-        tx.Rollback()
-        return nil, err
-    }
+	if _, err = tx.Exec("update replicas set database = $2 where database = $1 and deleted = false", entry.Id, InstanceId); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
 
-    entry.Id = InstanceId
-    
-    if err = tx.Commit(); err != nil {
-        return nil, err
-    }
-    return &entry, err
+	if _, err = tx.Exec("delete from databases where id = $1 and deleted = false and claimed = false", entry.Id); err != nil {
+		tx.Rollback()
+		return nil, err
+	}
+
+	entry.Id = InstanceId
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return &entry, err
 }
 
-func (b *PostgresStorage) ReturnClaimedInstance(Id string) (error) {
-    rows, err := b.db.Exec("update databases set claimed = false, id = uuid_generate_v4()::varchar(1024) where id = $1 and status = 'available' and deleted = false and claimed = true", Id)
-    if err != nil {
-        return err
-    }
-    count, err := rows.RowsAffected()
-    if err != nil {
-        return err
-    }
-    if count != 1 {
-        return errors.New("invalid count returned after trying to return unclaimed db " + Id)
-    }
-    return nil
+func (b *PostgresStorage) ReturnClaimedInstance(Id string) error {
+	rows, err := b.db.Exec("update databases set claimed = false, id = uuid_generate_v4()::varchar(1024) where id = $1 and status = 'available' and deleted = false and claimed = true", Id)
+	if err != nil {
+		return err
+	}
+	count, err := rows.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count != 1 {
+		return errors.New("invalid count returned after trying to return unclaimed db " + Id)
+	}
+	return nil
 }
 
-func (b *PostgresStorage) AddInstance(dbInstance *DbInstance) (error) {
-    _, err := b.db.Exec("insert into databases (id, name, plan, claimed, status, username, password, endpoint) values ($1, $2, $3, true, $4, $5, $6, $7)", dbInstance.Id, dbInstance.Name, dbInstance.Plan.ID, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
-    return err
+func (b *PostgresStorage) AddInstance(dbInstance *DbInstance) error {
+	_, err := b.db.Exec("insert into databases (id, name, plan, claimed, status, username, password, endpoint) values ($1, $2, $3, true, $4, $5, $6, $7)", dbInstance.Id, dbInstance.Name, dbInstance.Plan.ID, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
+	return err
 }
 
-func (b *PostgresStorage) NukeInstance(Id string) (error) {
-    _, err := b.db.Exec("delete from databases where id = $1", Id)
-    return err
+func (b *PostgresStorage) NukeInstance(Id string) error {
+	_, err := b.db.Exec("delete from databases where id = $1", Id)
+	return err
 }
 
-func (b *PostgresStorage) DeleteInstance(dbInstance *DbInstance) (error) {
-    b.db.Exec("update roles set deleted = true where database = $1", dbInstance.Name)
-    // TODO: do we need to ensure it does not have a replica that is going ot be orphaned?
-    b.db.Exec("update replicas set deleted = true where database = $1", dbInstance.Id)
-    b.db.Exec("update tasks set deleted = true where database = $1", dbInstance.Id)
-    _, err := b.db.Exec("update databases set deleted = true where id = $1", dbInstance.Id)
-    return err
+func (b *PostgresStorage) DeleteInstance(dbInstance *DbInstance) error {
+	b.db.Exec("update roles set deleted = true where database = $1", dbInstance.Name)
+	// TODO: do we need to ensure it does not have a replica that is going ot be orphaned?
+	b.db.Exec("update replicas set deleted = true where database = $1", dbInstance.Id)
+	b.db.Exec("update tasks set deleted = true where database = $1", dbInstance.Id)
+	_, err := b.db.Exec("update databases set deleted = true where id = $1", dbInstance.Id)
+	return err
 }
 
-func (b *PostgresStorage) UpdateInstance(dbInstance *DbInstance, PlanId string) (error) {
-    _, err := b.db.Exec("update databases set plan = $1, endpoint = $2, status = $3, username = $4, password = $5, name = $6 where id = $7", PlanId, dbInstance.Endpoint, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Name, dbInstance.Id)
-    return err
+func (b *PostgresStorage) UpdateInstance(dbInstance *DbInstance, PlanId string) error {
+	_, err := b.db.Exec("update databases set plan = $1, endpoint = $2, status = $3, username = $4, password = $5, name = $6 where id = $7", PlanId, dbInstance.Endpoint, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Name, dbInstance.Id)
+	return err
 }
 
 func (b *PostgresStorage) StartProvisioningTasks() ([]DbEntry, error) {
-    var sqlSelectToProvisionQuery = `
+	var sqlSelectToProvisionQuery = `
         select 
             plans.plan,
             plans.preprovision - ( select count(*) from databases where databases.claimed = false and (databases.status = 'available' or databases.status = 'creating' or databases.status = 'provisioning' or databases.status = 'backing-up' or databases.status = 'starting') and databases.deleted = false and plan = plans.plan ) as needed
@@ -621,70 +617,70 @@ func (b *PostgresStorage) StartProvisioningTasks() ([]DbEntry, error) {
             services.deprecated = false
     `
 
-    rows, err := b.db.Query(sqlSelectToProvisionQuery)
-    if err != nil {
-        return nil, err
-    }
-    defer rows.Close()
+	rows, err := b.db.Query(sqlSelectToProvisionQuery)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
-    entries := make([]DbEntry, 0)
+	entries := make([]DbEntry, 0)
 
-    for rows.Next() {
-        var planId string
-        var needed int
-        if err := rows.Scan(&planId, &needed); err != nil {
-            return nil, err
-        }
-        for i := 0; i < needed; i++ {
-            var entry DbEntry
-            if err := b.db.QueryRow("insert into databases (id, name, plan, claimed, status, username, password, endpoint) values (uuid_generate_v4(), '', $1, false, 'provisioning', '', '', '') returning id", planId).Scan(&entry.Id); err != nil {
-                glog.Infof("Unable to insert database entry for preprovisioning: %s\n", err.Error())
-            } else {
-                entry.PlanId = planId
-                entries = append(entries, entry)
-            }
-        }
-    }
-    return entries, nil
+	for rows.Next() {
+		var planId string
+		var needed int
+		if err := rows.Scan(&planId, &needed); err != nil {
+			return nil, err
+		}
+		for i := 0; i < needed; i++ {
+			var entry DbEntry
+			if err := b.db.QueryRow("insert into databases (id, name, plan, claimed, status, username, password, endpoint) values (uuid_generate_v4(), '', $1, false, 'provisioning', '', '', '') returning id", planId).Scan(&entry.Id); err != nil {
+				glog.Infof("Unable to insert database entry for preprovisioning: %s\n", err.Error())
+			} else {
+				entry.PlanId = planId
+				entries = append(entries, entry)
+			}
+		}
+	}
+	return entries, nil
 }
 
 func (b *PostgresStorage) GetInstance(Id string) (*DbEntry, error) {
-    var entry DbEntry
-    err := b.db.QueryRow("select id, name, plan, claimed, status, username, password, endpoint from databases where id = $1 and deleted = false", Id).Scan(&entry.Id, &entry.Name, &entry.PlanId, &entry.Claimed, &entry.Status, &entry.Username, &entry.Password, &entry.Endpoint)
+	var entry DbEntry
+	err := b.db.QueryRow("select id, name, plan, claimed, status, username, password, endpoint from databases where id = $1 and deleted = false", Id).Scan(&entry.Id, &entry.Name, &entry.PlanId, &entry.Claimed, &entry.Status, &entry.Username, &entry.Password, &entry.Endpoint)
 
-    if err != nil && err.Error() == "sql: no rows in result set" {
-        return nil, errors.New("Cannot find database instance")
-    } else if err != nil {
-        return nil, err
-    }
-    return &entry, nil
+	if err != nil && err.Error() == "sql: no rows in result set" {
+		return nil, errors.New("Cannot find database instance")
+	} else if err != nil {
+		return nil, err
+	}
+	return &entry, nil
 }
 
 func (b *PostgresStorage) AddTask(Id string, action TaskAction, metadata string) (string, error) {
-    var task_id string
-    return task_id, b.db.QueryRow("insert into tasks (task, database, action, metadata) values (uuid_generate_v4(), $1, $2, $3) returning task", Id, action, metadata).Scan(&task_id)
+	var task_id string
+	return task_id, b.db.QueryRow("insert into tasks (task, database, action, metadata) values (uuid_generate_v4(), $1, $2, $3) returning task", Id, action, metadata).Scan(&task_id)
 }
 
-func (b *PostgresStorage) UpdateTask(Id string, status *string, retries *int64, metadata *string, result *string, started *time.Time, finsihed *time.Time) (error) {
-    _, err := b.db.Exec("update tasks set status = coalesce($2, status), retries = coalesce($3, retries), metadata = coalesce($4, metadata), result = coalesce($5, result), started = coalesce($6, started), finished = coalesce($7, finished) where task = $1", Id, status, retries, metadata, result, started, finsihed)
-    return err
+func (b *PostgresStorage) UpdateTask(Id string, status *string, retries *int64, metadata *string, result *string, started *time.Time, finsihed *time.Time) error {
+	_, err := b.db.Exec("update tasks set status = coalesce($2, status), retries = coalesce($3, retries), metadata = coalesce($4, metadata), result = coalesce($5, result), started = coalesce($6, started), finished = coalesce($7, finished) where task = $1", Id, status, retries, metadata, result, started, finsihed)
+	return err
 }
 
 func (b *PostgresStorage) WarnOnUnfinishedTasks() {
-    var amount int
-    err := b.db.QueryRow("select count(*) from tasks where status = 'started' and extract(hours from now() - started) > 24").Scan(&amount)
-    if err != nil {
-        glog.Errorf("Unable to select stale tasks: %s\n", err.Error())
-        return
-    }
-    if amount < 0 {
-        glog.Errorf("WARNING: There are %d started tasks that are now over 24 hours old and have not yet finished, they may be stale.\n", amount)
-    }
+	var amount int
+	err := b.db.QueryRow("select count(*) from tasks where status = 'started' and extract(hours from now() - started) > 24").Scan(&amount)
+	if err != nil {
+		glog.Errorf("Unable to select stale tasks: %s\n", err.Error())
+		return
+	}
+	if amount < 0 {
+		glog.Errorf("WARNING: There are %d started tasks that are now over 24 hours old and have not yet finished, they may be stale.\n", amount)
+	}
 }
 
 func (b *PostgresStorage) PopPendingTask() (*Task, error) {
-    var task Task
-    err := b.db.QueryRow(`
+	var task Task
+	err := b.db.QueryRow(`
         update tasks set 
             status = 'started', 
             started = now() 
@@ -692,35 +688,34 @@ func (b *PostgresStorage) PopPendingTask() (*Task, error) {
             task in ( select task from tasks where status = 'pending' and deleted = false order by updated asc limit 1)
         returning task, action, database, status, retries, metadata, result, started, finished
     `).Scan(&task.Id, &task.Action, &task.DatabaseId, &task.Status, &task.Retries, &task.Metadata, &task.Result, &task.Started, &task.Finished)
-    if err != nil {
-        return nil, err
-    }
-    return &task, nil
+	if err != nil {
+		return nil, err
+	}
+	return &task, nil
 }
 
 func InitStorage(ctx context.Context, o Options) (*PostgresStorage, error) {
-    // Sanity checks
-    if o.DatabaseUrl == "" && os.Getenv("DATABASE_URL") != "" {
-        o.DatabaseUrl = os.Getenv("DATABASE_URL")
-    }
-    if o.DatabaseUrl == "" {
-        return nil, errors.New("Unable to connect to database, none was specified in the environment via DATABASE_URL or through the -database cli option.")
-    }
-    db, err := sql.Open("postgres", o.DatabaseUrl)
-    if err != nil {
-        glog.Errorf("Unable to create database schema: %s\n", err.Error())
-        return nil, errors.New("Unable to create database schema: " + err.Error())
-    }
+	// Sanity checks
+	if o.DatabaseUrl == "" && os.Getenv("DATABASE_URL") != "" {
+		o.DatabaseUrl = os.Getenv("DATABASE_URL")
+	}
+	if o.DatabaseUrl == "" {
+		return nil, errors.New("Unable to connect to database, none was specified in the environment via DATABASE_URL or through the -database cli option.")
+	}
+	db, err := sql.Open("postgres", o.DatabaseUrl)
+	if err != nil {
+		glog.Errorf("Unable to create database schema: %s\n", err.Error())
+		return nil, errors.New("Unable to create database schema: " + err.Error())
+	}
 
-    _, err = db.Exec(sqlCreateScript)
-    if err != nil {
-        return nil, err
-    }
+	_, err = db.Exec(sqlCreateScript)
+	if err != nil {
+		return nil, err
+	}
 
-    go cancelOnInterrupt(ctx, db)
+	go cancelOnInterrupt(ctx, db)
 
-    return &PostgresStorage {
-        db:db,
-    }, nil
-} 
-
+	return &PostgresStorage{
+		db: db,
+	}, nil
+}

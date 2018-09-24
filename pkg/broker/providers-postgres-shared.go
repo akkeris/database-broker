@@ -1,19 +1,19 @@
 package broker
 
 import (
-	"errors"
-	"strings"
 	"database/sql"
 	"encoding/json"
-	"net/url"
+	"errors"
 	_ "github.com/lib/pq"
+	"net/url"
+	"strings"
 )
 
 // provider=shared-postgres in database
 // These values come out of the plans table provider_private_details column.
 type PostgresSharedProviderPrivatePlanSettings struct {
-	MasterUri string `json:"master_uri"`
-	Engine string `json:"engine"`
+	MasterUri     string `json:"master_uri"`
+	Engine        string `json:"engine"`
 	EngineVersion string `json:engine_version"`
 }
 
@@ -68,7 +68,7 @@ type PostgresSharedProvider struct {
 
 func NewPostgresSharedProvider(namePrefix string) (PostgresSharedProvider, error) {
 	return PostgresSharedProvider{
-		namePrefix:namePrefix,
+		namePrefix: namePrefix,
 	}, nil
 }
 
@@ -79,18 +79,18 @@ func (provider PostgresSharedProvider) GetInstance(name string, plan *ProviderPl
 	}
 
 	return &DbInstance{
-		Id:"",
-		ProviderId:name,
-		Name:name,
-		Plan:plan,
-		Username:"",
-		Password:"",
-		Endpoint:settings.MasterHost() + "/" + name,
-		Status:"available",
-		Ready:true,
-		Engine:"postgres", 
-		EngineVersion:settings.EngineVersion,
-		Scheme:"postgres",
+		Id:            "",
+		ProviderId:    name,
+		Name:          name,
+		Plan:          plan,
+		Username:      "",
+		Password:      "",
+		Endpoint:      settings.MasterHost() + "/" + name,
+		Status:        "available",
+		Ready:         true,
+		Engine:        "postgres",
+		EngineVersion: settings.EngineVersion,
+		Scheme:        "postgres",
 	}, nil
 }
 
@@ -100,15 +100,15 @@ func (provider PostgresSharedProvider) Provision(Id string, plan *ProviderPlan, 
 		return nil, errors.New("Cannot unmarshal private details: " + err.Error())
 	}
 
-	db_name  := strings.ToLower(provider.namePrefix + RandomString(8))
+	db_name := strings.ToLower(provider.namePrefix + RandomString(8))
 	username := strings.ToLower("u" + RandomString(8))
-	password :=  RandomString(16)
+	password := RandomString(16)
 	db, err := sql.Open("postgres", settings.MasterUri)
 	if err != nil {
 		return nil, errors.New("Cannot provision shared database (connection failure): " + err.Error())
 	}
 	defer db.Close()
-	
+
 	if _, err = db.Exec("CREATE USER " + username + " WITH PASSWORD '" + password + "' NOINHERIT"); err != nil {
 		return nil, errors.New("Failed to create user with password: " + err.Error())
 	}
@@ -139,23 +139,23 @@ func (provider PostgresSharedProvider) Provision(Id string, plan *ProviderPlan, 
 		return nil, errors.New("Cannot create extension on new db: " + err.Error())
 	}
 	return &DbInstance{
-		Id:Id,
-		Name:db_name,
-		ProviderId:db_name,
-		Plan:plan,
-		Username:username,
-		Password:password,
-		Endpoint:settings.MasterHost() + "/" + db_name,
-		Status:"available",
-		Ready:true,
-		Engine:settings.Engine,
-		EngineVersion:settings.EngineVersion,
-		Scheme:plan.Scheme,
+		Id:            Id,
+		Name:          db_name,
+		ProviderId:    db_name,
+		Plan:          plan,
+		Username:      username,
+		Password:      password,
+		Endpoint:      settings.MasterHost() + "/" + db_name,
+		Status:        "available",
+		Ready:         true,
+		Engine:        settings.Engine,
+		EngineVersion: settings.EngineVersion,
+		Scheme:        plan.Scheme,
 	}, nil
 }
 
 // TODO: take snapshot somehow.
-func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) (error) {
+func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
 	var settings PostgresSharedProviderPrivatePlanSettings
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
 		return err
@@ -167,7 +167,7 @@ func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeS
 	}
 
 	defer db.Close()
-	
+
 	if _, err = db.Exec("REVOKE " + dbInstance.Username + " FROM CURRENT_USER"); err != nil {
 		return errors.New("Failed to revoke access from master user to shared tenant user: " + err.Error())
 	}
@@ -177,69 +177,69 @@ func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeS
 	if _, err = db.Exec("DROP USER " + dbInstance.Username); err != nil {
 		return errors.New("Failed to remove user: " + dbInstance.Username + " " + err.Error())
 	}
-	
+
 	return nil
 }
 
 func (provider PostgresSharedProvider) Modify(dbInstance *DbInstance, plan *ProviderPlan) (*DbInstance, error) {
-	return nil, 
+	return nil,
 		errors.New("This feature is not available on this plan.")
 }
 
-func (provider PostgresSharedProvider) Tag(dbInstance *DbInstance, Name string, Value string) (error) {
+func (provider PostgresSharedProvider) Tag(dbInstance *DbInstance, Name string, Value string) error {
 	// do nothing
 	return nil
 }
 
-func (provider PostgresSharedProvider) Untag(dbInstance *DbInstance, Name string) (error) {
+func (provider PostgresSharedProvider) Untag(dbInstance *DbInstance, Name string) error {
 	// do nothing
 	return nil
 }
 
 func (provider PostgresSharedProvider) GetBackup(dbInstance *DbInstance, Id string) (DatabaseBackupSpec, error) {
-	return DatabaseBackupSpec{}, 
+	return DatabaseBackupSpec{},
 		errors.New("This feature is not available on this plan.")
 }
 
 func (provider PostgresSharedProvider) CreateReadReplica(dbInstance *DbInstance) (*DbInstance, error) {
-	return nil, 
+	return nil,
 		errors.New("This feature is not available on this plan.")
 }
 
 func (provider PostgresSharedProvider) GetReadReplica(dbInstance *DbInstance) (*DbInstance, error) {
-	return nil, 
+	return nil,
 		errors.New("This feature is not available on this plan.")
 }
 
-func (provider PostgresSharedProvider) DeleteReadReplica(dbInstance *DbInstance) (error) {
+func (provider PostgresSharedProvider) DeleteReadReplica(dbInstance *DbInstance) error {
 	return errors.New("This feature is not available on this plan.")
 }
 
 func (provider PostgresSharedProvider) ListBackups(dbInstance *DbInstance) ([]DatabaseBackupSpec, error) {
-	return []DatabaseBackupSpec{}, 
+	return []DatabaseBackupSpec{},
 		errors.New("This feature is not available on this plan.")
 }
 
 func (provider PostgresSharedProvider) CreateBackup(dbInstance *DbInstance) (DatabaseBackupSpec, error) {
-	return DatabaseBackupSpec{}, 
+	return DatabaseBackupSpec{},
 		errors.New("This feature is not available on this plan.")
 }
 
-func (provider PostgresSharedProvider) RestoreBackup(dbInstance *DbInstance, Id string) (error) {
+func (provider PostgresSharedProvider) RestoreBackup(dbInstance *DbInstance, Id string) error {
 	return errors.New("This feature is not available on this plan.")
 }
 
-func (provider PostgresSharedProvider) Restart(dbInstance *DbInstance) (error) {
+func (provider PostgresSharedProvider) Restart(dbInstance *DbInstance) error {
 	return errors.New("This feature is not available on this plan.")
 }
 
 func (provider PostgresSharedProvider) ListLogs(dbInstance *DbInstance) ([]DatabaseLogs, error) {
-	return []DatabaseLogs{}, 
+	return []DatabaseLogs{},
 		errors.New("This feature is not available on this plan.")
 }
 
 func (provider PostgresSharedProvider) GetLogs(dbInstance *DbInstance, path string) (string, error) {
-	return "", 
+	return "",
 		errors.New("This feature is not available on this plan.")
 }
 
@@ -251,7 +251,7 @@ func (provider PostgresSharedProvider) CreateReadOnlyUser(dbInstance *DbInstance
 	return CreatePostgresReadOnlyRole(dbInstance, settings.MasterUsername(), settings.MasterPassword())
 }
 
-func (provider PostgresSharedProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) (error) {
+func (provider PostgresSharedProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
 	var settings PostgresSharedProviderPrivatePlanSettings
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
 		return err
@@ -293,29 +293,29 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	app_username := dbInstance.Username
 	endpoint := dbInstance.Endpoint
 
-	db, err := sql.Open("postgres", "postgres://" + masterUsername + ":" + masterPassword + "@" + endpoint)
+	db, err := sql.Open("postgres", "postgres://"+masterUsername+":"+masterPassword+"@"+endpoint)
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
 	defer db.Close()
-	
+
 	username := "rdo1" + strings.ToLower(RandomString(7))
 	password := RandomString(10)
-	
-	_, err = db.Exec(strings.Replace(strings.Replace(strings.Replace(strings.Replace(statement, "$1", username , -1), "$2", "'" + password + "'", -1), "$3",  dbInstance.Name , -1), "$4", app_username, -1))
+
+	_, err = db.Exec(strings.Replace(strings.Replace(strings.Replace(strings.Replace(statement, "$1", username, -1), "$2", "'"+password+"'", -1), "$3", dbInstance.Name, -1), "$4", app_username, -1))
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
 	return DatabaseUrlSpec{
-		Username:username,
-		Password:password,
-		Endpoint:dbInstance.Endpoint,
-		Plan:dbInstance.Plan.ID,
+		Username: username,
+		Password: password,
+		Endpoint: dbInstance.Endpoint,
+		Plan:     dbInstance.Plan.ID,
 	}, nil
 }
 
 func RotatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, masterPassword string, role string) (DatabaseUrlSpec, error) {
-	db, err := sql.Open("postgres", "postgres://" + masterUsername + ":" + masterPassword + "@" + dbInstance.Endpoint)
+	db, err := sql.Open("postgres", "postgres://"+masterUsername+":"+masterPassword+"@"+dbInstance.Endpoint)
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
@@ -325,13 +325,13 @@ func RotatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 		return DatabaseUrlSpec{}, err
 	}
 	return DatabaseUrlSpec{
-		Username:dbInstance.Username,
-		Password:password,
-		Endpoint:dbInstance.Endpoint,
+		Username: dbInstance.Username,
+		Password: password,
+		Endpoint: dbInstance.Endpoint,
 	}, nil
 }
 
-func DeletePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, masterPassword string, role string) (error) {
+func DeletePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, masterPassword string, role string) error {
 	statement := `
 	do $$
 	begin
@@ -346,7 +346,7 @@ func DeletePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	end 
 	$$;
 	`
-	db, err := sql.Open("postgres", "postgres://" + masterUsername + ":" + masterPassword + "@" + dbInstance.Endpoint)
+	db, err := sql.Open("postgres", "postgres://"+masterUsername+":"+masterPassword+"@"+dbInstance.Endpoint)
 	if err != nil {
 		return err
 	}
@@ -358,4 +358,3 @@ func DeletePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	}
 	return nil
 }
-

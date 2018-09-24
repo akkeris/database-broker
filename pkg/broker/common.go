@@ -1,24 +1,23 @@
 package broker
 
 import (
-	"net/http"
-	"sync"
-    "context"
-	"github.com/golang/glog"
-	_ "github.com/lib/pq"
-	"github.com/pmorie/osb-broker-lib/pkg/broker"
-	osb "github.com/pmorie/go-open-service-broker-client/v2"
-	"github.com/gorilla/mux"
-	"text/template"
-	"math/rand"
-	"time"
-	"bytes"
 	"bufio"
-	"os"
-	"errors"
+	"bytes"
+	"context"
 	"encoding/json"
+	"errors"
+	"github.com/golang/glog"
+	"github.com/gorilla/mux"
+	_ "github.com/lib/pq"
+	osb "github.com/pmorie/go-open-service-broker-client/v2"
+	"github.com/pmorie/osb-broker-lib/pkg/broker"
+	"math/rand"
+	"net/http"
+	"os"
+	"sync"
+	"text/template"
+	"time"
 )
-
 
 var randomSource = rand.NewSource(time.Now().UnixNano())
 
@@ -59,21 +58,19 @@ func falsePtr() *bool {
 }
 
 type Action struct {
-	name string
-	path string
-	method string
+	name    string
+	path    string
+	method  string
 	handler func(http.ResponseWriter, *http.Request)
 }
 
 type ActionBase struct {
-
 	actions []Action
 	sync.RWMutex
 }
 
-
 func HttpError(w http.ResponseWriter, err error) {
-	data, err := json.Marshal(map[string]interface{}{"description":err.Error(), "error":"internalServerError"})
+	data, err := json.Marshal(map[string]interface{}{"description": err.Error(), "error": "internalServerError"})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -85,7 +82,7 @@ func HttpError(w http.ResponseWriter, err error) {
 }
 
 func Http422Error(w http.ResponseWriter, errs string) {
-	data, err := json.Marshal(map[string]interface{}{"description":errs, "error":"unprocessibleEntityError"})
+	data, err := json.Marshal(map[string]interface{}{"description": errs, "error": "unprocessibleEntityError"})
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
@@ -123,42 +120,41 @@ func HttpCreated(w http.ResponseWriter, obj interface{}) {
 	w.Write(data)
 }
 
-func InternalServerError() (error) {
+func InternalServerError() error {
 	description := "Internal Server Error"
 	return osb.HTTPStatusCodeError{
-		StatusCode: http.StatusInternalServerError,
+		StatusCode:  http.StatusInternalServerError,
 		Description: &description,
 	}
 }
 
-func ConflictErrorWithMessage(description string) (error) {
+func ConflictErrorWithMessage(description string) error {
 	return osb.HTTPStatusCodeError{
-		StatusCode: http.StatusConflict,
+		StatusCode:  http.StatusConflict,
 		Description: &description,
 	}
 }
 
-
-func UnprocessableEntityWithMessage(err string, description string) (error) {
+func UnprocessableEntityWithMessage(err string, description string) error {
 	return osb.HTTPStatusCodeError{
 		ResponseError: errors.New(err),
-		StatusCode: http.StatusUnprocessableEntity,
-		Description: &description,
+		StatusCode:    http.StatusUnprocessableEntity,
+		Description:   &description,
 	}
 }
 
-func UnprocessableEntity() (error) {
+func UnprocessableEntity() error {
 	description := "Unprocessable Entity"
 	return osb.HTTPStatusCodeError{
-		StatusCode: http.StatusUnprocessableEntity,
+		StatusCode:  http.StatusUnprocessableEntity,
 		Description: &description,
 	}
 }
 
-func NotFound() (error) {
+func NotFound() error {
 	description := "Not Found"
 	return osb.HTTPStatusCodeError{
-		StatusCode: http.StatusNotFound,
+		StatusCode:  http.StatusNotFound,
 		Description: &description,
 	}
 }
@@ -173,15 +169,14 @@ func InitFromOptions(ctx context.Context, o Options) (Storage, string, error) {
 	return storage, o.NamePrefix, err
 }
 
-
 func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
 	instance_id := v["instance_id"]
 	var baseUrl = "/v2/service_instances/" + instance_id + "/actions"
-	
+
 	action_name := v["action_name"]
 	var found = false
-	for  _, action := range b.actions {
+	for _, action := range b.actions {
 		if action.name == action_name {
 			found = true
 			t := template.Must(template.New("openapi3").Parse(`
@@ -227,10 +222,10 @@ func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request)
 			wr := bufio.NewWriter(&b)
 			err := t.Execute(wr, struct {
 				BaseUrl string
-				Name string
-				Path string
-				Method string
-			}{BaseUrl:baseUrl, Name:action.name, Path:action.path, Method:action.method})
+				Name    string
+				Path    string
+				Method  string
+			}{BaseUrl: baseUrl, Name: action.name, Path: action.path, Method: action.method})
 			if err != nil {
 				glog.Errorf("Cannot generate swagger doc: %s\n", err.Error())
 				w.WriteHeader(500)
@@ -252,7 +247,7 @@ func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request)
 
 func (b *ActionBase) RouteActions(router *mux.Router) error {
 	for _, action := range b.actions {
-		router.HandleFunc("/v2/service_instances/{instance_id}/actions/" + action.path, action.handler).Methods(action.method)
+		router.HandleFunc("/v2/service_instances/{instance_id}/actions/"+action.path, action.handler).Methods(action.method)
 	}
 	router.HandleFunc("/v2/service_instances/{instance_id}/actions/{action_name}/schema", b.ActionSchemaHandler).Methods("GET")
 	return nil
@@ -263,8 +258,8 @@ func (b *ActionBase) ConvertActionsToExtensions(serviceId string) []osb.Extensio
 	var baseUrl = ""
 	for _, action := range b.actions {
 		extensions = append(extensions, osb.ExtensionAPI{
-			DiscoveryURL:baseUrl + "/v2/service_instances/" + serviceId + "/actions/" + action.name + "/schema",
-			ServerURL:baseUrl + "/v2/service_instances/" + serviceId + "/actions/",
+			DiscoveryURL: baseUrl + "/v2/service_instances/" + serviceId + "/actions/" + action.name + "/schema",
+			ServerURL:    baseUrl + "/v2/service_instances/" + serviceId + "/actions/",
 		})
 	}
 	return extensions
@@ -274,10 +269,10 @@ func (b *ActionBase) AddActions(name string, path string, method string, handler
 	b.Lock()
 	defer b.Unlock()
 	b.actions = append(b.actions, Action{
-		name:name,
-		path:path,
-		method:method,
-		handler:handler,
+		name:    name,
+		path:    path,
+		method:  method,
+		handler: handler,
 	})
 	return nil
 }
@@ -286,8 +281,8 @@ func (b *ActionBase) AddActions(name string, path string, method string, handler
 func CrudeOSBIHacks(router *mux.Router, b *BusinessLogic) {
 	router.HandleFunc("/v2/service_instances/{instance_id}/service_bindings/{binding_id}", func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
-		req := osb.GetBindingRequest{InstanceID:vars["instance_id"], BindingID:vars["binding_id"]}
-		c := broker.RequestContext{Request:r, Writer:w}
+		req := osb.GetBindingRequest{InstanceID: vars["instance_id"], BindingID: vars["binding_id"]}
+		c := broker.RequestContext{Request: r, Writer: w}
 		resp, err := b.GetBinding(&req, &c)
 		if err != nil {
 			HttpError(w, err)
@@ -296,5 +291,3 @@ func CrudeOSBIHacks(router *mux.Router, b *BusinessLogic) {
 		HttpWrite(w, resp)
 	}).Methods("GET")
 }
-
-

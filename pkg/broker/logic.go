@@ -1,31 +1,31 @@
 package broker
 
 import (
-	"net/http"
 	"context"
+	"encoding/json"
 	"errors"
 	"github.com/golang/glog"
-	"github.com/pmorie/osb-broker-lib/pkg/broker"
-	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/gorilla/mux"
-	"encoding/json"
+	osb "github.com/pmorie/go-open-service-broker-client/v2"
+	"github.com/pmorie/osb-broker-lib/pkg/broker"
+	"net/http"
 )
 
 type BusinessLogic struct {
 	ActionBase
-	storage Storage
+	storage    Storage
 	namePrefix string
 }
 
 func NewBusinessLogic(ctx context.Context, o Options) (*BusinessLogic, error) {
-	storage, namePrefix,  err := InitFromOptions(ctx, o)
+	storage, namePrefix, err := InitFromOptions(ctx, o)
 	if err != nil {
 		return nil, err
 	}
 
 	bl := BusinessLogic{
-		storage:			 storage,
-		namePrefix: 		 namePrefix,
+		storage:    storage,
+		namePrefix: namePrefix,
 	}
 
 	bl.AddActions("list_backups", "backups", "GET", bl.ActionListBackups)
@@ -77,8 +77,8 @@ func (b *BusinessLogic) HttpGetDbInstance(w http.ResponseWriter, r *http.Request
 }
 
 func (b *BusinessLogic) ActionGetReplica(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {		
-		dbUrl, err := b.storage.GetReplicas(dbInstance) 
+	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
+		dbUrl, err := b.storage.GetReplicas(dbInstance)
 		if err != nil {
 			HttpError(w, err)
 			return
@@ -106,14 +106,14 @@ func (b *BusinessLogic) ActionCreateReplica(w http.ResponseWriter, r *http.Reque
 			Http422Error(w, "Cannot create a replica, database already has one attached.")
 			return
 		}
-		
+
 		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
 		if err != nil {
 			glog.Errorf("Unable to create read replica on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
 			HttpError(w, err)
 			return
 		}
-		
+
 		newDbInstance, err := provider.CreateReadReplica(dbInstance)
 		if err != nil {
 			glog.Errorf("Unable to create read replica on db, CreateReadReplica failed: %s\n", err.Error())
@@ -134,9 +134,9 @@ func (b *BusinessLogic) ActionCreateReplica(w http.ResponseWriter, r *http.Reque
 		}
 
 		HttpCreated(w, DatabaseUrlSpec{
-			Username:newDbInstance.Username,
-			Password:newDbInstance.Password,
-			Endpoint:newDbInstance.Endpoint,
+			Username: newDbInstance.Username,
+			Password: newDbInstance.Password,
+			Endpoint: newDbInstance.Endpoint,
 		})
 	}
 }
@@ -159,7 +159,7 @@ func (b *BusinessLogic) ActionDeleteReplica(w http.ResponseWriter, r *http.Reque
 		}
 
 		if err = b.storage.DeleteReplica(readDbReplica); err != nil {
-			HttpError(w, err) 
+			HttpError(w, err)
 			return
 		}
 
@@ -255,7 +255,7 @@ func (b *BusinessLogic) ActionDeleteRole(w http.ResponseWriter, r *http.Request)
 		params := mux.Vars(r)
 		role := params["role"]
 
-		// ensure the role exists first 
+		// ensure the role exists first
 		amount, err := b.storage.HasRole(dbInstance, role)
 		if err != nil {
 			HttpError(w, err)
@@ -328,7 +328,7 @@ func (b *BusinessLogic) ActionRestart(w http.ResponseWriter, r *http.Request) {
 }
 
 func (b *BusinessLogic) ActionRestoreBackup(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil  {
+	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
 		vars := mux.Vars(r)
 		Id := vars["backup"]
 		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
@@ -407,7 +407,7 @@ func (b *BusinessLogic) ActionGetBackup(w http.ResponseWriter, r *http.Request) 
 }
 
 func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance, error) {
-	entry, err := storage.GetInstance(Id) 
+	entry, err := storage.GetInstance(Id)
 	if err != nil {
 		return nil, err
 	}
@@ -416,7 +416,7 @@ func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance
 	if err != nil {
 		return nil, err
 	}
-	
+
 	provider, err := GetProviderByPlan(namePrefix, plan)
 	if err != nil {
 		return nil, err
@@ -445,7 +445,7 @@ func (b *BusinessLogic) GetUnclaimedInstance(PlanId string, InstanceId string) (
 	}
 	dbInstance, err := b.GetInstanceById(dbEntry.Id)
 	if err != nil {
-		if err = b.storage.ReturnClaimedInstance(dbEntry.Id); err != nil { 
+		if err = b.storage.ReturnClaimedInstance(dbEntry.Id); err != nil {
 			return nil, err
 		}
 		return nil, err
@@ -453,9 +453,9 @@ func (b *BusinessLogic) GetUnclaimedInstance(PlanId string, InstanceId string) (
 	return dbInstance, nil
 }
 
-// A peice of advice, never try to make this syncronous by waiting for a to return a response. The problem is 
+// A peice of advice, never try to make this syncronous by waiting for a to return a response. The problem is
 // that can take up to 10 minutes in my experience (depending on the provider), and aside from the API call timing
-// out the other issue is it can cause the mutex lock to make the entire API unresponsive. 
+// out the other issue is it can cause the mutex lock to make the entire API unresponsive.
 // TODO: Clustered instances must be provisioned differently
 // TODO: Support the concept of callbacks once a provision has happened?
 func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.RequestContext) (*broker.ProvisionResponse, error) {
@@ -464,10 +464,10 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 	response := broker.ProvisionResponse{}
 
 	if !request.AcceptsIncomplete {
-		return nil, UnprocessableEntityWithMessage("AsyncRequired", "The query parameter accepts_incomplete=true MUST be included the request.");
+		return nil, UnprocessableEntityWithMessage("AsyncRequired", "The query parameter accepts_incomplete=true MUST be included the request.")
 	}
 	if request.InstanceID == "" {
-		return nil, UnprocessableEntityWithMessage("InstanceRequired", "The instance ID was not provided.");
+		return nil, UnprocessableEntityWithMessage("InstanceRequired", "The instance ID was not provided.")
 	}
 
 	plan, err := b.storage.GetPlanByID(request.PlanID)
@@ -481,14 +481,13 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
 
 	if err == nil {
-		if(dbInstance.Plan.ID != request.PlanID) {
+		if dbInstance.Plan.ID != request.PlanID {
 			return nil, ConflictErrorWithMessage("InstanceID in use")
 		}
 		response.Exists = true
 	} else if err != nil && err.Error() == "Cannot find database instance" {
 		response.Exists = false
 		dbInstance, err = b.GetUnclaimedInstance(request.PlanID, request.InstanceID)
-
 
 		if err != nil && err.Error() == "Cannot find database instance" {
 			// Create a new one
@@ -505,7 +504,7 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 
 			if err = b.storage.AddInstance(dbInstance); err != nil {
 				glog.Errorf("Error inserting record into provisioned table: %s\n", err.Error())
-				
+
 				if err = provider.Deprovision(dbInstance, false); err != nil {
 					glog.Errorf("Error cleaning up (deprovision failed) after insert record failed but provision succeeded (Database Id:%s Name: %s) %s\n", dbInstance.Id, dbInstance.Name, err.Error())
 					if _, err = b.storage.AddTask(dbInstance.Id, DeleteTask, dbInstance.Name); err != nil {
@@ -520,8 +519,8 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 				}
 				// This is a hack to support callbacks, hopefully this will become an OSB standard.
 				if c.Request.URL.Query().Get("webhook") != "" && c.Request.URL.Query().Get("secret") != "" {
-					// Schedule a callback 
-					byteData, err := json.Marshal(WebhookTaskMetadata{Url:c.Request.URL.Query().Get("webhook"), Secret:c.Request.URL.Query().Get("secret")})
+					// Schedule a callback
+					byteData, err := json.Marshal(WebhookTaskMetadata{Url: c.Request.URL.Query().Get("webhook"), Secret: c.Request.URL.Query().Get("secret")})
 					if err != nil {
 						glog.Errorf("Error: failed to marshal webhook task metadata: %s\n", err)
 					}
@@ -630,13 +629,11 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 		return nil, UnprocessableEntityWithMessage("UpgradeError", "Invalid Provider")
 	}
 
-
 	newDbInstance, err := provider.Modify(dbInstance, target_plan)
 	if err != nil {
 		glog.Errorf("Error modifying the plan on database (%s): %s\n", dbInstance.Name, err.Error())
 		return nil, InternalServerError()
 	}
-
 
 	if err = b.storage.UpdateInstance(dbInstance, newDbInstance.Plan.ID); err != nil {
 		glog.Errorf("Error updating record in provisioned table to change plan (%s): %s\n", dbInstance.Name, err.Error())
@@ -696,7 +693,7 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 		glog.Errorf("Unable to provision, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
 		return nil, InternalServerError()
 	}
-	
+
 	if err = provider.Tag(dbInstance, "Binding", request.BindingID); err != nil {
 		glog.Errorf("Error tagging: %s with %s, got %s\n", request.InstanceID, *request.BindResource.AppGUID, err.Error())
 		return nil, InternalServerError()
@@ -710,9 +707,9 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 	if err != nil && err.Error() == "sql: no rows in result set" {
 		response := broker.BindResponse{
 			BindResponse: osb.BindResponse{
-				Async:false,
-				Credentials:map[string]interface{}{
-					"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+				Async: false,
+				Credentials: map[string]interface{}{
+					"DATABASE_URL": dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
 				},
 			},
 		}
@@ -720,17 +717,17 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 	} else if err == nil {
 		response := broker.BindResponse{
 			BindResponse: osb.BindResponse{
-				Async:false,
-				Credentials:map[string]interface{}{
-					"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
-					"DATABASE_READONLY_URL":dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
+				Async: false,
+				Credentials: map[string]interface{}{
+					"DATABASE_URL":          dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+					"DATABASE_READONLY_URL": dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
 				},
 			},
 		}
 		return &response, nil
 	} else {
 		glog.Errorf("Error: Get binding, replica table returned error: %s\n", err.Error())
-		return nil, InternalServerError() 
+		return nil, InternalServerError()
 	}
 }
 
@@ -749,7 +746,6 @@ func (b *BusinessLogic) Unbind(request *osb.UnbindRequest, c *broker.RequestCont
 		return nil, UnprocessableEntity()
 	}
 
-	
 	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
 	if err != nil {
 		glog.Errorf("Unable to provision, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
@@ -767,7 +763,7 @@ func (b *BusinessLogic) Unbind(request *osb.UnbindRequest, c *broker.RequestCont
 
 	return &broker.UnbindResponse{
 		UnbindResponse: osb.UnbindResponse{
-			Async:false,
+			Async: false,
 		},
 	}, nil
 }
@@ -781,30 +777,29 @@ func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *brok
 	if err != nil && err.Error() == "Cannot find database instance" {
 		return nil, NotFound()
 	} else if err != nil {
-		glog.Errorf("Error finding instance id (during getbinding): %s\n", err.Error())		
+		glog.Errorf("Error finding instance id (during getbinding): %s\n", err.Error())
 		return nil, err
 	}
 
 	dbUrl, err := b.storage.GetReplicas(dbInstance)
 	if err != nil && err.Error() == "sql: no rows in result set" {
 		response := osb.GetBindingResponse{
-			Credentials:map[string]interface{}{
-				"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+			Credentials: map[string]interface{}{
+				"DATABASE_URL": dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
 			},
 		}
 		return &response, nil
 	} else if err == nil {
 		response := osb.GetBindingResponse{
-			Credentials:map[string]interface{}{
-				"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
-				"DATABASE_READONLY_URL":dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
+			Credentials: map[string]interface{}{
+				"DATABASE_URL":          dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+				"DATABASE_READONLY_URL": dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
 			},
 		}
 		return &response, nil
 	}
-	glog.Errorf("Error getting replicas during get binding: %s\n", err.Error())		
+	glog.Errorf("Error getting replicas during get binding: %s\n", err.Error())
 	return nil, err
 }
-
 
 var _ broker.Interface = &BusinessLogic{}

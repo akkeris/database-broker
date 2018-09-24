@@ -17,15 +17,15 @@ import (
 	clientrest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
+	"github.com/akkeris/database-broker/pkg/broker"
 	"github.com/pmorie/osb-broker-lib/pkg/metrics"
 	"github.com/pmorie/osb-broker-lib/pkg/rest"
 	"github.com/pmorie/osb-broker-lib/pkg/server"
-	"github.com/akkeris/database-broker/pkg/broker"
 )
 
 var options struct {
 	broker.Options
-	RunBackgroundTasks	 bool
+	RunBackgroundTasks   bool
 	Port                 int
 	Insecure             bool
 	TLSCert              string
@@ -101,7 +101,7 @@ func runWithContext(ctx context.Context) error {
 	}
 
 	s := server.New(api, reg)
-	
+
 	businessLogic.RouteActions(s.Router)
 	broker.CrudeOSBIHacks(s.Router, businessLogic)
 

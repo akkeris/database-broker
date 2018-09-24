@@ -23,11 +23,9 @@ jobs:
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd /go/src/github.com/akkeris/database-broker
             dep ensure
-            go tool
-            go env
             DATABASE_URL=postgres://root:root@localhost:5432/test\?sslmode=disable NAME_PREFIX=testing make coverage
-            npm install codacy-coverage -g
-            cat cover.out | codacy-coverage
+            go get github.com/schrej/godacov
+            godacov -t $CODACY_PROJECT_TOKEN -r ./cover.out -c ${CIRCLE_SHA1}
       - run:
           name: Build application docker image
           command: |

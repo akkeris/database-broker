@@ -5,30 +5,29 @@ import (
 )
 
 type DbInstance struct {
-	Id            string			`json:"id"`
-	Name          string			`json:"name"`
-	ProviderId	  string			`json:"provider_id"`
-	Plan	      *ProviderPlan		`json:"plan,omitempty"`
-	Username      string			`json:"username"`
-	Password      string			`json:"password"`
-	Endpoint 	  string			`json:"endpoint"`
-	Status        string			`json:"status"`
-	Ready         bool				`json:"ready"`
-	Engine        string			`json:"engine"`
-	EngineVersion string			`json:"engine_version"`
-	Scheme		  string			`json:"scheme"`
+	Id            string        `json:"id"`
+	Name          string        `json:"name"`
+	ProviderId    string        `json:"provider_id"`
+	Plan          *ProviderPlan `json:"plan,omitempty"`
+	Username      string        `json:"username"`
+	Password      string        `json:"password"`
+	Endpoint      string        `json:"endpoint"`
+	Status        string        `json:"status"`
+	Ready         bool          `json:"ready"`
+	Engine        string        `json:"engine"`
+	EngineVersion string        `json:"engine_version"`
+	Scheme        string        `json:"scheme"`
 }
 
-
 type DbEntry struct {
-	Id					string
-	Name				string
-	PlanId				string
-	Claimed				bool 
-	Status				string
-	Username			string
-	Password			string 
-	Endpoint			string
+	Id       string
+	Name     string
+	PlanId   string
+	Claimed  bool
+	Status   string
+	Username string
+	Password string
+	Endpoint string
 }
 
 func (i *DbInstance) Match(other *DbInstance) bool {
@@ -39,7 +38,7 @@ type DatabaseUrlSpec struct {
 	Username string
 	Password string
 	Endpoint string
-	Plan string
+	Plan     string
 }
 
 type DatabaseSpec struct {
@@ -47,37 +46,36 @@ type DatabaseSpec struct {
 }
 
 type DatabaseLogs struct {
-	Size *int64 `json:"size"`
-	Name *string `json:"name"`
-	Updated string `json:"updated_at"`
+	Size    *int64  `json:"size"`
+	Name    *string `json:"name"`
+	Updated string  `json:"updated_at"`
 }
 
 type DatabaseBackupSpec struct {
 	Database DatabaseSpec `json:"database"`
-	Id *string `json:"id"`
-	Progress *int64 `json:"progress"`
-	Status *string `json:"status"`
-	Created string `json:"created_at"`
+	Id       *string      `json:"id"`
+	Progress *int64       `json:"progress"`
+	Status   *string      `json:"status"`
+	Created  string       `json:"created_at"`
 }
 
-
-func IsReady(status string) (bool) {
-	return  status == "available" || 
-			status == "configuring-enhanced-monitoring" || 
-			status == "storage-optimization" ||
-			status == "backing-up"
+func IsReady(status string) bool {
+	return status == "available" ||
+		status == "configuring-enhanced-monitoring" ||
+		status == "storage-optimization" ||
+		status == "backing-up"
 }
 
-func InProgress(status string) (bool) {
-	return  status == "creating"    || status == "starting"   || status == "modifying" || 
-			status == "rebooting"   || status == "moving-to-vpc" || 
-			status == "renaming"    || status == "upgrading"  || status == "backtracking" || 
-			status == "maintenance" || status == "resetting-master-credentials"
+func InProgress(status string) bool {
+	return status == "creating" || status == "starting" || status == "modifying" ||
+		status == "rebooting" || status == "moving-to-vpc" ||
+		status == "renaming" || status == "upgrading" || status == "backtracking" ||
+		status == "maintenance" || status == "resetting-master-credentials"
 }
 
-func CanBeDeleted(status string) (bool) {
-	return  status != "creating"    && status != "starting"   		&& status != "modifying" && 
-			status != "rebooting"   && status != "moving-to-vpc" 	&& status != "backing-up" &&
-			status != "renaming"    && status != "upgrading"  		&& status != "backtracking" &&
-			status != "maintenance" && status != "resetting-master-credentials"
+func CanBeDeleted(status string) bool {
+	return status != "creating" && status != "starting" && status != "modifying" &&
+		status != "rebooting" && status != "moving-to-vpc" && status != "backing-up" &&
+		status != "renaming" && status != "upgrading" && status != "backtracking" &&
+		status != "maintenance" && status != "resetting-master-credentials"
 }

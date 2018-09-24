@@ -56,7 +56,7 @@ There are no environment variables for shared postgres providers, although sensi
 
 ### 2. Deployment
 
-You can deploy the image `akkeris/database-broker:lastest` via docker with the environment or config var settings above. If you decide you're going to build this manually and run it you'll need see the Building section below.  This is a 12-factor app and supports 
+You can deploy the image `akkeris/database-broker:lastest` via docker with the environment or config var settings above. If you decide you're going to build this manually and run it you'll need see the Building section below. 
 
 ### 3. Plans
 

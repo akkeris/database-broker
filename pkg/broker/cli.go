@@ -5,8 +5,8 @@ import (
 )
 
 type Options struct {
-	DatabaseUrl			string
-	NamePrefix          string
+	DatabaseUrl string
+	NamePrefix  string
 }
 
 func AddFlags(o *Options) {
