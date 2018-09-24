@@ -19,10 +19,7 @@ jobs:
       - run:
           name: Run tests
           command: |
-            docker run database-broker make test
-          environment:
-            DATABASE_URL: "postgres://root:root@localhost:5432/test"
-            NAME_PREFIX: testing
+            docker run --network="host" --env NAME_PREFIX=testing --env DATABASE_URL=postgres://root:root@localhost:5432/test database-broker make test
       - deploy:
           name: Push application Docker image
           command: |
