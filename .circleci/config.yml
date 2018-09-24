@@ -3,7 +3,7 @@ jobs:
   build:
     working_directory: /app
     docker:
-      - image: docker:17.05.0-ce-git
+      - image: docker:18.06.1-ce-git
       - image: circleci/postgres:9.6.2-alpine
         environment:
           POSTGRES_USER: root
@@ -13,21 +13,21 @@ jobs:
       - checkout
       - setup_remote_docker
       - run:
-          name: Build application docker image
-          command: |
-            docker build -t database-broker .
-      - run:
           name: Run tests
           command: |
             apk update
             apk add openssl ca-certificates git make build-base go
-            wget https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64 -O /usr/bin/dep
+            wget https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64 -q -O /usr/bin/dep
             chmod +x /usr/bin/dep
             mkdir -p /go/src/github.com/akkeris/
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd /go/src/github.com/akkeris/database-broker
             GOROOT=/usr/lib/go GOPATH=/go dep ensure
             GOROOT=/usr/lib/go GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test NAME_PREFIX=testing make test
+      - run:
+          name: Build application docker image
+          command: |
+            docker build -t database-broker .
       - deploy:
           name: Push application Docker image
           command: |
