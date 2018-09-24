@@ -24,10 +24,10 @@ jobs:
             wget https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64 -O /usr/bin/dep
             chmod +x /usr/bin/dep
             echo $(go env GOROOT)
-            mkdir -p /go/src/githb.com/akkeris/
+            mkdir -p /go/src/github.com/akkeris/
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd 
-            GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test NAME_PREFIX=testing make test
+            GOROOT=/usr/lib/go GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test NAME_PREFIX=testing make test
       - deploy:
           name: Push application Docker image
           command: |
