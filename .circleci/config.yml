@@ -23,6 +23,7 @@ jobs:
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd /go/src/github.com/akkeris/database-broker
             GOROOT=/usr/lib/go GOPATH=/go dep ensure
+            GOROOT=/usr/lib/go GOPATH=/go go get golang.org/x/tools/cmd/cover
             GOROOT=/usr/lib/go GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test\?sslmode=disable NAME_PREFIX=testing make coverage
             npm install codacy-coverage -g
             cat cover.out | codacy-coverage
