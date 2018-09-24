@@ -16,7 +16,7 @@ jobs:
           name: Run tests
           command: |
             apk update --no-progress -q
-            apk add openssl ca-certificates git make build-base go nodejs npmjs --no-progress -q
+            apk add openssl ca-certificates git make build-base go nodejs npm --no-progress -q
             wget https://github.com/golang/dep/releases/download/v0.5.0/dep-linux-amd64 -q -O /usr/bin/dep
             chmod +x /usr/bin/dep
             mkdir -p /go/src/github.com/akkeris/
