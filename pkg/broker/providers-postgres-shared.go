@@ -248,7 +248,7 @@ func (provider PostgresSharedProvider) CreateReadOnlyUser(dbInstance *DbInstance
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
 		return DatabaseUrlSpec{}, err
 	}
-	return CreatePostgresReadOnlyRole(dbInstance, settings.MasterUsername(), settings.MasterPassword())
+	return CreatePostgresReadOnlyRole(dbInstance, settings.GetMasterUriWithDb(dbInstance.Name))
 }
 
 func (provider PostgresSharedProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
@@ -256,7 +256,7 @@ func (provider PostgresSharedProvider) DeleteReadOnlyUser(dbInstance *DbInstance
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
 		return err
 	}
-	return DeletePostgresReadOnlyRole(dbInstance, settings.MasterUsername(), settings.MasterPassword(), role)
+	return DeletePostgresReadOnlyRole(dbInstance, settings.GetMasterUriWithDb(dbInstance.Name), role)
 }
 
 func (provider PostgresSharedProvider) RotatePasswordReadOnlyUser(dbInstance *DbInstance, role string) (DatabaseUrlSpec, error) {
@@ -264,12 +264,12 @@ func (provider PostgresSharedProvider) RotatePasswordReadOnlyUser(dbInstance *Db
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
 		return DatabaseUrlSpec{}, err
 	}
-	return RotatePostgresReadOnlyRole(dbInstance, settings.MasterUsername(), settings.MasterPassword(), role)
+	return RotatePostgresReadOnlyRole(dbInstance, settings.GetMasterUriWithDb(dbInstance.Name), role)
 }
 
 // Technically the create role functions are used by any provider that implements postgres but we'll place
 // them here, but be aware they're not specific to this provider.
-func CreatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, masterPassword string) (DatabaseUrlSpec, error) {
+func CreatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string) (DatabaseUrlSpec, error) {
 	if dbInstance.Engine != "postgres" {
 		return DatabaseUrlSpec{}, errors.New("I do not know how to do this on anything other than postgres.")
 	}
@@ -291,9 +291,7 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	`
 
 	app_username := dbInstance.Username
-	endpoint := dbInstance.Endpoint
-
-	db, err := sql.Open("postgres", "postgres://"+masterUsername+":"+masterPassword+"@"+endpoint)
+	db, err := sql.Open("postgres", databaseUri)
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
@@ -314,8 +312,8 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	}, nil
 }
 
-func RotatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, masterPassword string, role string) (DatabaseUrlSpec, error) {
-	db, err := sql.Open("postgres", "postgres://"+masterUsername+":"+masterPassword+"@"+dbInstance.Endpoint)
+func RotatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role string) (DatabaseUrlSpec, error) {
+	db, err := sql.Open("postgres", databaseUri)
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
@@ -331,7 +329,7 @@ func RotatePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	}, nil
 }
 
-func DeletePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, masterPassword string, role string) error {
+func DeletePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role string) error {
 	statement := `
 	do $$
 	begin
@@ -346,7 +344,7 @@ func DeletePostgresReadOnlyRole(dbInstance *DbInstance, masterUsername string, m
 	end 
 	$$;
 	`
-	db, err := sql.Open("postgres", "postgres://"+masterUsername+":"+masterPassword+"@"+dbInstance.Endpoint)
+	db, err := sql.Open("postgres", databaseUri)
 	if err != nil {
 		return err
 	}

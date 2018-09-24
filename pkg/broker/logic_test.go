@@ -7,13 +7,17 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"os"
 	"testing"
+	_ "github.com/lib/pq"
+	"database/sql"
+	"fmt"
+	"net/url"
 )
 
 func TestProvision(t *testing.T) {
 	var logic *BusinessLogic
 	var catalog *broker.CatalogResponse
 	var plan osb.Plan
-	//var service osb.Service
+	var dbUrl string
 	var instanceId string = RandomString(12)
 	var err error
 	Convey("Given a fresh provisioner.", t, func() {
@@ -58,7 +62,7 @@ func TestProvision(t *testing.T) {
 			So(res, ShouldNotBeNil)
 		})
 
-		Convey("Get and create sevice bindings", func() {
+		Convey("Get and create service bindings", func() {
 			var request osb.LastOperationRequest = osb.LastOperationRequest{InstanceID: instanceId}
 			var c broker.RequestContext
 			res, err := logic.LastOperation(&request, &c)
@@ -74,6 +78,8 @@ func TestProvision(t *testing.T) {
 			So(dres, ShouldNotBeNil)
 			So(dres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 
+			dbUrl = dres.Credentials["DATABASE_URL"].(string)
+
 			var gbrequest osb.GetBindingRequest = osb.GetBindingRequest{InstanceID: instanceId, BindingID: "foo"}
 			gbres, err := logic.GetBinding(&gbrequest, &c)
 			So(err, ShouldBeNil)
@@ -85,6 +91,40 @@ func TestProvision(t *testing.T) {
 			ures, err := logic.Unbind(&urequest, &c)
 			So(err, ShouldBeNil)
 			So(ures, ShouldNotBeNil)
+		})
+
+		Convey("Ensure creation of roles, rotating roles and removing roles successfully works.", func() {
+			db, err := sql.Open("postgres", dbUrl + "?sslmode=disable")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			defer db.Close()
+			_, err = db.Exec("CREATE TABLE mytable (somefield text)")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			_, err = db.Exec("insert into mytable (somefield) values ('fooo')")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			var c broker.RequestContext
+			resp, err := logic.ActionCreateRole(instanceId, map[string]string{}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			dbReadOnlySpec := resp.(DatabaseUrlSpec)
+			dbFullUrl, err := url.Parse(dbUrl)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			So(dbFullUrl.User.Username(), ShouldNotEqual, dbReadOnlySpec.Username)
+			So(dbFullUrl.Host + dbFullUrl.Path, ShouldEqual, dbReadOnlySpec.Endpoint)
+
 		})
 
 		Convey("Ensure deprovisioner for shared postgres works", func() {

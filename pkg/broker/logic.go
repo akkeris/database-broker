@@ -3,12 +3,9 @@ package broker
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"github.com/golang/glog"
-	"github.com/gorilla/mux"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/pmorie/osb-broker-lib/pkg/broker"
-	"net/http"
 )
 
 type BusinessLogic struct {
@@ -65,345 +62,330 @@ func (b *BusinessLogic) GetCatalog(c *broker.RequestContext) (*broker.CatalogRes
 	return response, nil
 }
 
-func (b *BusinessLogic) HttpGetDbInstance(w http.ResponseWriter, r *http.Request) *DbInstance {
-	v := mux.Vars(r)
-	dbInstance, err := b.GetInstanceById(v["instance_id"])
+func (b *BusinessLogic) ActionGetReplica(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
 	if err != nil {
-		w.WriteHeader(404)
-		w.Write([]byte("Instance Not Found"))
-		return nil
+		return nil, NotFound()
 	}
-	return dbInstance
+	dbUrl, err := b.storage.GetReplicas(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to get replica: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return dbUrl, nil
 }
 
-func (b *BusinessLogic) ActionGetReplica(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		dbUrl, err := b.storage.GetReplicas(dbInstance)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, dbUrl)
+func (b *BusinessLogic) ActionCreateReplica(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	if dbInstance.Engine != "postgres" {
+		return nil, ConflictErrorWithMessage("I do not know how to do this on anything other than postgres.")
+	}
+
+	b.Lock()
+	defer b.Unlock()
+
+	amount, err := b.storage.HasReplicas(dbInstance)
+	if err != nil {
+		glog.Errorf("Error determining if database has replicas: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	if amount != 0 {
+		return nil, ConflictErrorWithMessage("Cannot create a replica, database already has one attached.")
+	}
+
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to create read replica on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	newDbInstance, err := provider.CreateReadReplica(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to create read replica on db, CreateReadReplica failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	if err = b.storage.AddReplica(newDbInstance); err != nil {
+		// TODO: Clean up.
+		glog.Errorf("Error inserting record into provisioned_replicas table: %s\n", err.Error())
+		provider.DeleteReadReplica(newDbInstance)
+		if err != nil {
+			glog.Errorf("Error cleaning up unrecorded database replica: %#v because %s\n", newDbInstance, err.Error())
+			// TODO add task to remove it later?
+		}
+		return nil, InternalServerError()
+	}
+
+	return DatabaseUrlSpec{
+		Username: newDbInstance.Username,
+		Password: newDbInstance.Password,
+		Endpoint: newDbInstance.Endpoint,
+	}, nil
 }
 
-func (b *BusinessLogic) ActionCreateReplica(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		if dbInstance.Engine != "postgres" {
-			HttpError(w, errors.New("I do not know how to do this on anything other than postgres."))
-		}
-
-		b.Lock()
-		defer b.Unlock()
-
-		amount, err := b.storage.HasReplicas(dbInstance)
-		if err != nil {
-			glog.Errorf("Error determining if database has replicas: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		if amount != 0 {
-			Http422Error(w, "Cannot create a replica, database already has one attached.")
-			return
-		}
-
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to create read replica on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		newDbInstance, err := provider.CreateReadReplica(dbInstance)
-		if err != nil {
-			glog.Errorf("Unable to create read replica on db, CreateReadReplica failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		if err = b.storage.AddReplica(newDbInstance); err != nil {
-			// TODO: Clean up.
-			glog.Errorf("Error inserting record into provisioned_replicas table: %s\n", err.Error())
-			provider.DeleteReadReplica(newDbInstance)
-			if err != nil {
-				glog.Errorf("Error cleaning up unrecorded database replica: %#v because %s\n", newDbInstance, err.Error())
-				// TODO add task to remove it later?
-			}
-			HttpError(w, err)
-			return
-		}
-
-		HttpCreated(w, DatabaseUrlSpec{
-			Username: newDbInstance.Username,
-			Password: newDbInstance.Password,
-			Endpoint: newDbInstance.Endpoint,
-		})
+func (b *BusinessLogic) ActionDeleteReplica(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to delete read replica on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	readDbReplica, err := provider.GetReadReplica(dbInstance)
+
+	if err = provider.DeleteReadReplica(readDbReplica); err != nil {
+		glog.Errorf("Unable to delete read replica on db, CreateReadReplica failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	if err = b.storage.DeleteReplica(readDbReplica); err != nil {
+		glog.Errorf("Unable to delete replica: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	return map[string]interface{}{"status": "OK"}, nil
 }
 
-func (b *BusinessLogic) ActionDeleteReplica(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to delete read replica on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		readDbReplica, err := provider.GetReadReplica(dbInstance)
-
-		if err = provider.DeleteReadReplica(readDbReplica); err != nil {
-			glog.Errorf("Unable to delete read replica on db, CreateReadReplica failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		if err = b.storage.DeleteReplica(readDbReplica); err != nil {
-			HttpError(w, err)
-			return
-		}
-
-		HttpWrite(w, map[string]interface{}{"status": "OK"})
+func (b *BusinessLogic) ActionListRoles(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	roles, err := b.storage.ListRoles(dbInstance)
+	if err != nil {
+		return nil, InternalServerError()
+	}
+	return roles, nil
 }
 
-func (b *BusinessLogic) ActionListRoles(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		roles, err := b.storage.ListRoles(dbInstance)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, roles)
+func (b *BusinessLogic) ActionGetRole(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	role, err := b.storage.GetRole(dbInstance, vars["role"])
+	if err != nil {
+		glog.Errorf("Unable to get role in action: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return role, nil
 }
 
-func (b *BusinessLogic) ActionGetRole(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		params := mux.Vars(r)
-		role, err := b.storage.GetRole(dbInstance, params["role"])
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, role)
+func (b *BusinessLogic) ActionCreateRole(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to create read only role on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	dbUrl, err := provider.CreateReadOnlyUser(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to create read only role, CreateReadOnlyUser failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	if _, err = b.storage.AddRole(dbInstance, dbUrl.Username, dbUrl.Password); err != nil {
+		if delerr := provider.DeleteReadOnlyUser(dbInstance, dbUrl.Username); delerr != nil {
+			glog.Errorf("Unable to remove read only role when trying to unwind changes, orphaned read only user: %s on db %s: %s\n", dbUrl.Username, dbInstance.Name, delerr.Error())
+		}
+		glog.Errorf("Unable to insert the role: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	return dbUrl, nil
 }
 
-func (b *BusinessLogic) ActionCreateRole(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to create read only role on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		dbUrl, err := provider.CreateReadOnlyUser(dbInstance)
-		if err != nil {
-			glog.Errorf("Unable to create read only role, CreateReadOnlyUser failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		if err = b.storage.AddRole(dbInstance, dbUrl.Username, dbUrl.Password); err != nil {
-			if delerr := provider.DeleteReadOnlyUser(dbInstance, dbUrl.Username); delerr != nil {
-				glog.Errorf("Unable to remove read only role when trying to unwind changes, orphaned read only user: %s on db %s: %s\n", dbUrl.Username, dbInstance.Name, delerr.Error())
-			}
-			glog.Errorf("Unable to insert the role: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		HttpCreated(w, dbUrl)
+func (b *BusinessLogic) ActionRotateRole(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+
+	role := vars["role"]
+
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to rotate read only password for role, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	dbUrl, err := provider.RotatePasswordReadOnlyUser(dbInstance, role)
+	if err != nil {
+		glog.Errorf("Unable to rotate password on read only role, RotatePasswordReadOnlyUser failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	if _, err = b.storage.UpdateRole(dbInstance, role, dbUrl.Password); err != nil {
+		glog.Errorf("Error: Unable to record password change for database %s and read only user %s with new password %s\n", dbInstance.Name, role, dbUrl.Password)
+		return nil, InternalServerError()
+	}
+
+	return dbUrl, nil
 }
 
-func (b *BusinessLogic) ActionRotateRole(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		params := mux.Vars(r)
-		role := params["role"]
-
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to rotate read only password for role, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		dbUrl, err := provider.RotatePasswordReadOnlyUser(dbInstance, role)
-		if err != nil {
-			glog.Errorf("Unable to rotate password on read only role, RotatePasswordReadOnlyUser failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-
-		if err = b.storage.UpdateRole(dbInstance, role, dbUrl.Password); err != nil {
-			glog.Errorf("Error: Unable to record password change for database %s and read only user %s with new password %s\n", dbInstance.Name, role, dbUrl.Password)
-			HttpError(w, err)
-			return
-		}
-
-		HttpWrite(w, dbUrl)
+func (b *BusinessLogic) ActionDeleteRole(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	if dbInstance.Engine != "postgres" {
+		return nil, ConflictErrorWithMessage("I do not know how to do this on anything other than postgres.")
+	}
+	role := vars["role"]
+
+	// ensure the role exists first
+	amount, err := b.storage.HasRole(dbInstance, role)
+	if err != nil {
+		glog.Errorf("Unable to determine if database has role, %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	if amount == 0 {
+		return nil, NotFound()
+	}
+	if err = b.storage.DeleteRole(dbInstance, role); err != nil {
+		glog.Errorf("Unable to delete database role, %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
+	return map[string]interface{}{"status": "OK"}, nil
 }
 
-func (b *BusinessLogic) ActionDeleteRole(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		if dbInstance.Engine != "postgres" {
-			HttpError(w, errors.New("I do not know how to do this on anything other than postgres."))
-		}
-		params := mux.Vars(r)
-		role := params["role"]
-
-		// ensure the role exists first
-		amount, err := b.storage.HasRole(dbInstance, role)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		if amount == 0 {
-			HttpError(w, errors.New("No read only role exists for this database"))
-			return
-		}
-		if err = b.storage.DeleteRole(dbInstance, role); err != nil {
-			HttpError(w, err)
-			return
-		}
-
-		HttpWrite(w, map[string]interface{}{"status": "OK"})
+func (b *BusinessLogic) ActionListLogs(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to list logs on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	logs, err := provider.ListLogs(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to get a list of logs: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return logs, nil
 }
 
-func (b *BusinessLogic) ActionListLogs(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to list logs on db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		logs, err := provider.ListLogs(dbInstance)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, logs)
+func (b *BusinessLogic) ActionGetLogs(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	path := vars["dir"] + "/" + vars["file"]
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to get db logs, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	logs, err := provider.GetLogs(dbInstance, path)
+	if err != nil {
+		glog.Errorf("Unable to get logs, %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return logs, nil
 }
 
-func (b *BusinessLogic) ActionGetLogs(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		params := mux.Vars(r)
-		path := params["dir"] + "/" + params["file"]
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to restart db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		logs, err := provider.GetLogs(dbInstance, path)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWriteText(w, logs)
+func (b *BusinessLogic) ActionRestart(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to restart db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	err = provider.Restart(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to restart db, %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return map[string]interface{}{"status": "OK"}, nil
 }
 
-func (b *BusinessLogic) ActionRestart(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to restart db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		err = provider.Restart(dbInstance)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, map[string]interface{}{"status": "OK"})
+func (b *BusinessLogic) ActionRestoreBackup(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to restore backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	err = provider.RestoreBackup(dbInstance, vars["backup"])
+	if err != nil {
+		glog.Errorf("Unable to restore backup: %s\n", err.Error())
+	}
+	return map[string]interface{}{"status": "OK"}, nil
 }
 
-func (b *BusinessLogic) ActionRestoreBackup(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		vars := mux.Vars(r)
-		Id := vars["backup"]
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to restore backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		err = provider.RestoreBackup(dbInstance, Id)
-		if err != nil {
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, map[string]interface{}{"status": "OK"})
+func (b *BusinessLogic) ActionCreateBackup(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to create backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	backup, err := provider.CreateBackup(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to create backup, create backup failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return backup, nil
 }
 
-func (b *BusinessLogic) ActionCreateBackup(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to create backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		backup, err := provider.CreateBackup(dbInstance)
-		if err != nil {
-			glog.Errorf("Unable to create backup, create backup failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, backup)
+func (b *BusinessLogic) ActionListBackups(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to list backups, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	backups, err := provider.ListBackups(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to list backups, create backup failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return backups, nil
 }
 
-func (b *BusinessLogic) ActionListBackups(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to list backups, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		backups, err := provider.ListBackups(dbInstance)
-		if err != nil {
-			glog.Errorf("Unable to list backups, create backup failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, backups)
+func (b *BusinessLogic) ActionGetBackup(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	dbInstance, err := b.GetInstanceById(InstanceID)
+	if err != nil {
+		return nil, NotFound()
 	}
-}
-
-func (b *BusinessLogic) ActionGetBackup(w http.ResponseWriter, r *http.Request) {
-	if dbInstance := b.HttpGetDbInstance(w, r); dbInstance != nil {
-		vars := mux.Vars(r)
-		id := vars["backup"]
-		provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
-		if err != nil {
-			glog.Errorf("Unable to create backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		backup, err := provider.GetBackup(dbInstance, id)
-		if err != nil && err.Error() == "Not found" {
-			w.WriteHeader(404)
-			w.Write([]byte("Snapshot Not Found."))
-			return
-		} else if err != nil {
-			glog.Errorf("Unable to get backup, get backup failed: %s\n", err.Error())
-			HttpError(w, err)
-			return
-		}
-		HttpWrite(w, backup)
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to create backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
 	}
+	backup, err := provider.GetBackup(dbInstance, vars["backup"])
+	if err != nil && err.Error() == "Not found" {
+		return nil, NotFound()
+	} else if err != nil {
+		glog.Errorf("Unable to get backup, get backup failed: %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+	return backup, nil
 }
 
 func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance, error) {

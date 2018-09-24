@@ -57,42 +57,7 @@ func falsePtr() *bool {
 	return &b
 }
 
-type Action struct {
-	name    string
-	path    string
-	method  string
-	handler func(http.ResponseWriter, *http.Request)
-}
-
-type ActionBase struct {
-	actions []Action
-	sync.RWMutex
-}
-
-func HttpError(w http.ResponseWriter, err error) {
-	data, err := json.Marshal(map[string]interface{}{"description": err.Error(), "error": "internalServerError"})
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(500)
-	w.Write(data)
-	glog.Errorf("An error occured: %s\n", err.Error())
-}
-
-func Http422Error(w http.ResponseWriter, errs string) {
-	data, err := json.Marshal(map[string]interface{}{"description": errs, "error": "unprocessibleEntityError"})
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(422)
-	w.Write(data)
-}
-
-func HttpWrite(w http.ResponseWriter, obj interface{}) {
+func HttpWrite(w http.ResponseWriter, status int, obj interface{}) {
 	data, err := json.Marshal(obj)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -100,23 +65,6 @@ func HttpWrite(w http.ResponseWriter, obj interface{}) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(200)
-	w.Write(data)
-}
-
-func HttpWriteText(w http.ResponseWriter, data string) {
-	w.Header().Set("Content-Type", "text/plain")
-	w.WriteHeader(200)
-	w.Write([]byte(data))
-}
-
-func HttpCreated(w http.ResponseWriter, obj interface{}) {
-	data, err := json.Marshal(obj)
-	if err != nil {
-		w.WriteHeader(http.StatusInternalServerError)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(201)
 	w.Write(data)
 }
 
@@ -158,6 +106,19 @@ func NotFound() error {
 		Description: &description,
 	}
 }
+
+type Action struct {
+	name    string
+	path    string
+	method  string
+	handler func(string, map[string]string, *broker.RequestContext) (interface{}, error)
+}
+
+type ActionBase struct {
+	actions []Action
+	sync.RWMutex
+}
+
 func InitFromOptions(ctx context.Context, o Options) (Storage, string, error) {
 	if o.NamePrefix == "" && os.Getenv("NAME_PREFIX") != "" {
 		o.NamePrefix = os.Getenv("NAME_PREFIX")
@@ -247,7 +208,39 @@ func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request)
 
 func (b *ActionBase) RouteActions(router *mux.Router) error {
 	for _, action := range b.actions {
-		router.HandleFunc("/v2/service_instances/{instance_id}/actions/"+action.path, action.handler).Methods(action.method)
+		router.HandleFunc("/v2/service_instances/{instance_id}/actions/"+action.path, func(w http.ResponseWriter, r *http.Request) {
+			vars := mux.Vars(r)
+			c := broker.RequestContext{Request: r, Writer: w}
+			obj, herr := action.handler(vars["instance_id"], vars, &c)
+			if herr != nil {
+				type e struct {
+					ErrorMessage *string `json:"error,omitempty"`
+					Description  *string `json:"description,omitempty"`
+				}
+				if httpErr, ok := osb.IsHTTPError(herr); ok {
+					body := &e{}
+					if httpErr.Description != nil {
+						body.Description = httpErr.Description
+					}
+					if httpErr.ErrorMessage != nil {
+						body.ErrorMessage = httpErr.ErrorMessage
+					}
+					HttpWrite(w, 500, body)
+					return
+				} else {
+					msg := "InternalServerError"
+					description := "Internal Server Error"
+					body := &e{ErrorMessage:&msg, Description:&description}
+					HttpWrite(w, 500, body)
+					return
+				}
+			}
+			if obj != nil {
+				HttpWrite(w, 200, obj)
+			} else {
+				HttpWrite(w, 200, map[string]string{})
+			}
+		}).Methods(action.method)
 	}
 	router.HandleFunc("/v2/service_instances/{instance_id}/actions/{action_name}/schema", b.ActionSchemaHandler).Methods("GET")
 	return nil
@@ -265,7 +258,7 @@ func (b *ActionBase) ConvertActionsToExtensions(serviceId string) []osb.Extensio
 	return extensions
 }
 
-func (b *ActionBase) AddActions(name string, path string, method string, handler func(http.ResponseWriter, *http.Request)) error {
+func (b *ActionBase) AddActions(name string, path string, method string, handler func(string, map[string]string, *broker.RequestContext) (interface{}, error)) error {
 	b.Lock()
 	defer b.Unlock()
 	b.actions = append(b.actions, Action{
@@ -285,9 +278,9 @@ func CrudeOSBIHacks(router *mux.Router, b *BusinessLogic) {
 		c := broker.RequestContext{Request: r, Writer: w}
 		resp, err := b.GetBinding(&req, &c)
 		if err != nil {
-			HttpError(w, err)
+			HttpWrite(w, 500, map[string]string{"error":"InternalServerError", "description":"Internal Server Error"})
 			return
 		}
-		HttpWrite(w, resp)
+		HttpWrite(w, 200, resp)
 	}).Methods("GET")
 }

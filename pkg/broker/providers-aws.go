@@ -399,13 +399,13 @@ func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) er
 }
 
 func (provider AWSInstanceProvider) CreateReadOnlyUser(dbInstance *DbInstance) (DatabaseUrlSpec, error) {
-	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Username, dbInstance.Password)
+	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint + "/" + dbInstance.Name)
 }
 
 func (provider AWSInstanceProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
-	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Username, dbInstance.Password, role)
+	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint + "/" + dbInstance.Name, role)
 }
 
 func (provider AWSInstanceProvider) RotatePasswordReadOnlyUser(dbInstance *DbInstance, role string) (DatabaseUrlSpec, error) {
-	return RotatePostgresReadOnlyRole(dbInstance, dbInstance.Username, dbInstance.Password, role)
+	return RotatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint + "/" + dbInstance.Name, role)
 }
