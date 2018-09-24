@@ -26,7 +26,7 @@ jobs:
             echo $(go env GOROOT)
             mkdir -p /go/src/github.com/akkeris/
             cp -a -p . /go/src/github.com/akkeris/database-broker
-            cd 
+            cd /go/src/github.com/akkeris/database-broker
             GOROOT=/usr/lib/go GOPATH=/go DATABASE_URL=postgres://root:root@localhost:5432/test NAME_PREFIX=testing make test
       - deploy:
           name: Push application Docker image
