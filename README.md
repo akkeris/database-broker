@@ -1,6 +1,7 @@
 # Akkeris Database Broker
 
 [![Codacy Badge](https://api.codacy.com/project/badge/Grade/9b3065a9f42d44618ed8e459032e5964)](https://www.codacy.com/app/Akkeris/database-broker?utm_source=github.com&amp;utm_medium=referral&amp;utm_content=akkeris/database-broker&amp;utm_campaign=Badge_Grade)
+[![Codacy Badge](https://api.codacy.com/project/badge/Coverage/9b3065a9f42d44618ed8e459032e5964)](https://www.codacy.com/app/Akkeris/database-broker?utm_source=github.com&utm_medium=referral&utm_content=akkeris/database-broker&utm_campaign=Badge_Coverage)
 [![CircleCI](https://circleci.com/gh/akkeris/database-broker.svg?style=svg)](https://circleci.com/gh/akkeris/database-broker)
 
 A database broker for a variety of cloud providers and even on-prem db systems that implements the Open Service Broker 2.13 compliant database broker REST API.  Depending on provider it can provision postgres, mysql, aws aurora and hypothetically oracle and mssql (although not tested) databases. It can also be ran without Akkeris, but why would you? 
