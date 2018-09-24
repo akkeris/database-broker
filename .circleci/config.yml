@@ -13,16 +13,16 @@ jobs:
       - checkout
       - setup_remote_docker
       - run:
-          name: Run tests
-          command: |
-            apk install make ; make tests
-          environment:
-            DATABASE_URL: "postgres://root:root@localhost:5432/test"
-            NAME_PREFIX: testing
-      - run:
           name: Build application docker image
           command: |
             docker build -t database-broker .
+      - run:
+          name: Run tests
+          command: |
+            docker run database-broker make tests
+          environment:
+            DATABASE_URL: "postgres://root:root@localhost:5432/test"
+            NAME_PREFIX: testing
       - deploy:
           name: Push application Docker image
           command: |
