@@ -19,7 +19,7 @@ jobs:
       - run:
           name: Run tests
           command: |
-            docker run database-broker make tests
+            docker run database-broker make test
           environment:
             DATABASE_URL: "postgres://root:root@localhost:5432/test"
             NAME_PREFIX: testing
