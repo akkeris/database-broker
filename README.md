@@ -146,9 +146,10 @@ You'll need to deploy one or multiple (depending on your load) task workers with
 
 ## Contributing and Building
 
-1. Fork
-2. Clone
-3. `dep ensure`
-4. `make`
-5. `./servicebroker ...`
+1. `dep ensure`
+2. `make`
+3. `./servicebroker ...`
 
+### Testing
+
+`make test`
