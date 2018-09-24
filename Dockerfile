@@ -7,7 +7,4 @@ WORKDIR /go/src/github.com/akkeris/database-broker
 COPY . .
 RUN dep ensure
 RUN make
-RUN mkdir -p /opt/servicebroker/
-RUN cp ./servicebroker /opt/servicebroker/servicebroker
-WORKDIR /opt/servicebroker/
-CMD /opt/servicebroker/servicebroker -insecure -logtostderr=1 -stderrthreshold 0 
+CMD ./servicebroker -insecure -logtostderr=1 -stderrthreshold 0 
