@@ -471,7 +471,7 @@ func (b *PostgresStorage) DeleteReplica(dbInstance *DbInstance) error {
 }
 
 func (b *PostgresStorage) ListRoles(dbInstance *DbInstance) ([]DatabaseUrlSpec, error) {
-	rows, err := b.db.Query("SELECT username, passwd FROM roles where database = $1 and deleted = false", dbInstance.Id)
+	rows, err := b.db.Query("SELECT username, password FROM roles where database = $1 and deleted = false", dbInstance.Id)
 	if err != nil {
 		return []DatabaseUrlSpec{}, err
 	}
@@ -491,7 +491,7 @@ func (b *PostgresStorage) ListRoles(dbInstance *DbInstance) ([]DatabaseUrlSpec, 
 func (b *PostgresStorage) GetRole(dbInstance *DbInstance, r string) (DatabaseUrlSpec, error) {
 	var role DatabaseUrlSpec
 	role.Endpoint = dbInstance.Endpoint
-	err := b.db.QueryRow("SELECT username, password FROM roles where database = $1 and username = $2 and deleted = false", dbInstance.Name, r).Scan(&role.Username, &role.Password)
+	err := b.db.QueryRow("SELECT username, password FROM roles where database = $1 and username = $2 and deleted = false", dbInstance.Id, r).Scan(&role.Username, &role.Password)
 	return role, err
 }
 
@@ -526,7 +526,7 @@ func (b *PostgresStorage) HasRole(dbInstance *DbInstance, username string) (int6
 }
 
 func (b *PostgresStorage) DeleteRole(dbInstance *DbInstance, username string) error {
-	_, err := b.db.Exec("update roles set delete = true where database = $1 and username = $2", dbInstance.Id, username)
+	_, err := b.db.Exec("update roles set deleted = true where database = $1 and username = $2", dbInstance.Id, username)
 	return err
 }
 

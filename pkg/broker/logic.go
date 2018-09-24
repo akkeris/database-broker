@@ -158,7 +158,10 @@ func (b *BusinessLogic) ActionListRoles(InstanceID string, vars map[string]strin
 		return nil, NotFound()
 	}
 	roles, err := b.storage.ListRoles(dbInstance)
-	if err != nil {
+	if err != nil && err.Error() != "sql: no rows in result set" {
+		return []DatabaseUrlSpec{}, nil
+	} else if err != nil {
+		glog.Errorf("Cannot list roles for instance %s: %s\n", InstanceID, err.Error())
 		return nil, InternalServerError()
 	}
 	return roles, nil
@@ -243,6 +246,12 @@ func (b *BusinessLogic) ActionDeleteRole(InstanceID string, vars map[string]stri
 	}
 	role := vars["role"]
 
+	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	if err != nil {
+		glog.Errorf("Unable to rotate read only password for role, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		return nil, InternalServerError()
+	}
+
 	// ensure the role exists first
 	amount, err := b.storage.HasRole(dbInstance, role)
 	if err != nil {
@@ -251,6 +260,11 @@ func (b *BusinessLogic) ActionDeleteRole(InstanceID string, vars map[string]stri
 	}
 	if amount == 0 {
 		return nil, NotFound()
+	}
+
+	if err = provider.DeleteReadOnlyUser(dbInstance, role); err != nil {
+		glog.Errorf("Unable to rotate password on read only role, RotatePasswordReadOnlyUser failed: %s\n", err.Error())
+		return nil, InternalServerError()
 	}
 	if err = b.storage.DeleteRole(dbInstance, role); err != nil {
 		glog.Errorf("Unable to delete database role, %s\n", err.Error())

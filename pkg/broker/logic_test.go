@@ -125,6 +125,35 @@ func TestProvision(t *testing.T) {
 			So(dbFullUrl.User.Username(), ShouldNotEqual, dbReadOnlySpec.Username)
 			So(dbFullUrl.Host + dbFullUrl.Path, ShouldEqual, dbReadOnlySpec.Endpoint)
 
+			resps, err := logic.ActionListRoles(instanceId, map[string]string{}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			roles := resps.([]DatabaseUrlSpec)
+			So(len(roles), ShouldEqual, 1)
+			So(roles[0].Username, ShouldEqual, dbReadOnlySpec.Username)
+
+			resprole, err := logic.ActionGetRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			getrole := resprole.(DatabaseUrlSpec)
+			So(getrole.Username, ShouldEqual, dbReadOnlySpec.Username)
+
+			rotroleresp, err := logic.ActionRotateRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			rotrole := rotroleresp.(DatabaseUrlSpec)
+			So(err, ShouldBeNil)
+			So(rotrole.Username, ShouldEqual, dbReadOnlySpec.Username)
+			So(rotrole.Password, ShouldNotEqual, dbReadOnlySpec.Password)
+
+			_, err = logic.ActionDeleteRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
+			So(err, ShouldBeNil)
+			// TODO: ensure you cant login
 		})
 
 		Convey("Ensure deprovisioner for shared postgres works", func() {

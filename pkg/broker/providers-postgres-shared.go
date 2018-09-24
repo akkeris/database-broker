@@ -17,27 +17,6 @@ type PostgresSharedProviderPrivatePlanSettings struct {
 	EngineVersion string `json:engine_version"`
 }
 
-func (psppps PostgresSharedProviderPrivatePlanSettings) MasterUsername() string {
-	db, err := url.Parse(psppps.MasterUri)
-	if err != nil {
-		return ""
-	}
-	return db.User.Username()
-}
-
-func (psppps PostgresSharedProviderPrivatePlanSettings) MasterPassword() string {
-	db, err := url.Parse(psppps.MasterUri)
-	if err != nil {
-		return ""
-	}
-	pass, ok := db.User.Password()
-	if ok == true {
-		return pass
-	} else {
-		return ""
-	}
-}
-
 func (psppps PostgresSharedProviderPrivatePlanSettings) MasterHost() string {
 	db, err := url.Parse(psppps.MasterUri)
 	if err != nil {
@@ -323,7 +302,7 @@ func RotatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 		return DatabaseUrlSpec{}, err
 	}
 	return DatabaseUrlSpec{
-		Username: dbInstance.Username,
+		Username: role,
 		Password: password,
 		Endpoint: dbInstance.Endpoint,
 	}, nil
