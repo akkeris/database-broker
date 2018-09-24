@@ -15,7 +15,7 @@ jobs:
       - run:
           name: Run tests
           command: |
-            apt-get install make ; make tests
+            apk install make ; make tests
           environment:
             DATABASE_URL: "postgres://root:root@localhost:5432/test"
             NAME_PREFIX: testing
