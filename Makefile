@@ -17,7 +17,7 @@ test: ## Runs the tests
 
 coverage: ## Runs the tests
 	go get github.com/smartystreets/goconvey
-	go test -coverprofile cover.out -v $(shell go list ./... | grep -v /vendor/ | grep -v /test/)
+	go test -coverprofile cover.out -covermode=count -v $(shell go list ./... | grep -v /vendor/ | grep -v /test/)
 
 linux: ## Builds a Linux executable
 	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 \
