@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"time"
+	"strings"
 	"encoding/json"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
@@ -67,9 +68,9 @@ func (provider AWSInstanceProvider) Provision(Id string, plan *ProviderPlan, Own
 		return nil, err
 	}
 
-	settings.DBName 				= aws.String(provider.namePrefix + RandomString(8))
+	settings.DBName 				= aws.String(strings.ToLower(provider.namePrefix + RandomString(8)))
 	settings.DBInstanceIdentifier 	= settings.DBName
-	settings.MasterUsername 		= aws.String("u" + RandomString(8))
+	settings.MasterUsername 		= aws.String(strings.ToLower("u" + RandomString(8)))
 	settings.MasterUserPassword 	= aws.String(RandomString(16))
 	settings.Tags					= []*rds.Tag{ { Key: aws.String("BillingCode"), Value: aws.String(Owner) } }
 	settings.VpcSecurityGroupIds	= []*string{ aws.String(provider.awsVpcSecurityGroup) }

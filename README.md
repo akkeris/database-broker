@@ -148,7 +148,7 @@ You'll need to deploy one or multiple (depending on your load) task workers with
 
 1. Fork
 2. Clone
-3. `dep ensuure`
+3. `dep ensure`
 4. `make`
 5. `./servicebroker ...`
 

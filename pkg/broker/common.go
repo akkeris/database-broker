@@ -6,6 +6,7 @@ import (
     "context"
 	"github.com/golang/glog"
 	_ "github.com/lib/pq"
+	"github.com/pmorie/osb-broker-lib/pkg/broker"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/gorilla/mux"
 	"text/template"
@@ -161,6 +162,17 @@ func NotFound() (error) {
 		Description: &description,
 	}
 }
+func InitFromOptions(ctx context.Context, o Options) (Storage, string, error) {
+	if o.NamePrefix == "" && os.Getenv("NAME_PREFIX") != "" {
+		o.NamePrefix = os.Getenv("NAME_PREFIX")
+	}
+	if o.NamePrefix == "" {
+		return nil, "", errors.New("The name prefix was not specified, set NAME_PREFIX in your environment or provide it via the cli using -name-prefix")
+	}
+	storage, err := InitStorage(ctx, o)
+	return storage, o.NamePrefix, err
+}
+
 
 func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request) {
 	v := mux.Vars(r)
@@ -238,17 +250,6 @@ func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request)
 	}
 }
 
-func InitFromOptions(ctx context.Context, o Options) (Storage, string, error) {
-	if o.NamePrefix == "" && os.Getenv("NAME_PREFIX") != "" {
-		o.NamePrefix = os.Getenv("NAME_PREFIX")
-	}
-	if o.NamePrefix == "" {
-		return nil, "", errors.New("The name prefix was not specified, set NAME_PREFIX in your environment or provide it via the cli using -name-prefix")
-	}
-	storage, err := InitStorage(ctx, o)
-	return storage, o.NamePrefix, err
-}
-
 func (b *ActionBase) RouteActions(router *mux.Router) error {
 	for _, action := range b.actions {
 		router.HandleFunc("/v2/service_instances/{instance_id}/actions/" + action.path, action.handler).Methods(action.method)
@@ -280,3 +281,20 @@ func (b *ActionBase) AddActions(name string, path string, method string, handler
 	})
 	return nil
 }
+
+// These are hacks to support more of V2.14 such as get service instance and get service bindings.
+func CrudeOSBIHacks(router *mux.Router, b *BusinessLogic) {
+	router.HandleFunc("/v2/service_instances/{instance_id}/service_bindings/{binding_id}", func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		req := osb.GetBindingRequest{InstanceID:vars["instance_id"], BindingID:vars["binding_id"]}
+		c := broker.RequestContext{Request:r, Writer:w}
+		resp, err := b.GetBinding(&req, &c)
+		if err != nil {
+			HttpError(w, err)
+			return
+		}
+		HttpWrite(w, resp)
+	}).Methods("GET")
+}
+
+

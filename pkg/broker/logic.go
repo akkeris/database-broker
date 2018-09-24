@@ -466,9 +466,14 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 	if !request.AcceptsIncomplete {
 		return nil, UnprocessableEntityWithMessage("AsyncRequired", "The query parameter accepts_incomplete=true MUST be included the request.");
 	}
+	if request.InstanceID == "" {
+		return nil, UnprocessableEntityWithMessage("InstanceRequired", "The instance ID was not provided.");
+	}
 
 	plan, err := b.storage.GetPlanByID(request.PlanID)
-	if err != nil {
+	if err != nil && err.Error() == "Not found" {
+		return nil, NotFound()
+	} else if err != nil {
 		glog.Errorf("Unable to provision (GetPlanByID failed): %s\n", err.Error())
 		return nil, InternalServerError()
 	}
@@ -771,58 +776,35 @@ func (b *BusinessLogic) ValidateBrokerAPIVersion(version string) error {
 	return nil
 }
 
-
-var _ broker.Interface = &BusinessLogic{}
-// Insert crude hacks to support latter additions to v2.14 spec. Reupdate 
-// these calls once its been added to the upstream.
-func (b *BusinessLogic) GetBinding(w http.ResponseWriter, r *http.Request) {
-	vars := mux.Vars(r)
-	instanceId := vars["instance_id"]
-	// binding_id is also passed in but we don't really do much with bindings.
-	
-	dbInstance, err := b.GetInstanceById(instanceId)
+func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *broker.RequestContext) (*osb.GetBindingResponse, error) {
+	dbInstance, err := b.GetInstanceById(request.InstanceID)
 	if err != nil && err.Error() == "Cannot find database instance" {
-		w.WriteHeader(404)
-		w.Write([]byte("Not Found"))
-		return
+		return nil, NotFound()
 	} else if err != nil {
-		glog.Errorf("Error finding instance id (during getbinding): %s\n", err.Error())
-		HttpError(w, err)
-		return
+		glog.Errorf("Error finding instance id (during getbinding): %s\n", err.Error())		
+		return nil, err
 	}
 
 	dbUrl, err := b.storage.GetReplicas(dbInstance)
 	if err != nil && err.Error() == "sql: no rows in result set" {
-		response := broker.BindResponse{
-			BindResponse: osb.BindResponse{
-				Async:false,
-				Credentials:map[string]interface{}{
-					"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
-				},
+		response := osb.GetBindingResponse{
+			Credentials:map[string]interface{}{
+				"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
 			},
 		}
-		HttpWrite(w, response)
-		return
+		return &response, nil
 	} else if err == nil {
-		response := broker.BindResponse{
-			BindResponse: osb.BindResponse{
-				Async:false,
-				Credentials:map[string]interface{}{
-					"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
-					"DATABASE_READONLY_URL":dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
-				},
+		response := osb.GetBindingResponse{
+			Credentials:map[string]interface{}{
+				"DATABASE_URL":dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+				"DATABASE_READONLY_URL":dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
 			},
 		}
-		HttpWrite(w, response)
-		return
-	} else if err != nil {
-		HttpError(w, err)
-		return
+		return &response, nil
 	}
-	
+	glog.Errorf("Error getting replicas during get binding: %s\n", err.Error())		
+	return nil, err
 }
 
-// These are hacks to support more of V2.14 such as get service instance and get service bindings.
-func (b *BusinessLogic) CrudeOSBIHacks(router *mux.Router) {
-	router.HandleFunc("/v2/service_instances/{instance_id}/service_bindings/{binding_id}", b.GetBinding).Methods("GET")
-}
+
+var _ broker.Interface = &BusinessLogic{}

@@ -4,11 +4,22 @@ jobs:
     working_directory: /app
     docker:
       - image: docker:17.05.0-ce-git
+      - image: circleci/postgres:9.6.2-alpine
+        environment:
+          POSTGRES_USER: root
+          POSTGRES_DB: test
     steps:
       - checkout
       - setup_remote_docker
       - run:
-          name: Build application Docker image
+          name: Run tests
+          command: |
+            make ; make tests
+          environment:
+            DATABASE_URL: "postgres://root@localhost:5432/test"
+            NAME_PREFIX: testing
+      - run:
+          name: Build application docker image
           command: |
             docker build -t database-broker .
       - deploy:

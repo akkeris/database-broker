@@ -12,6 +12,7 @@ build: ## Builds the starter pack
 	go build -i $(BASE_REPO)/cmd/servicebroker
 
 test: ## Runs the tests
+	go get github.com/smartystreets/goconvey
 	go test -v $(shell go list ./... | grep -v /vendor/ | grep -v /test/)
 
 linux: ## Builds a Linux executable

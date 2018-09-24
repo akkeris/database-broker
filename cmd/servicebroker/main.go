@@ -103,7 +103,7 @@ func runWithContext(ctx context.Context) error {
 	s := server.New(api, reg)
 	
 	businessLogic.RouteActions(s.Router)
-	businessLogic.CrudeOSBIHacks(s.Router)
+	broker.CrudeOSBIHacks(s.Router, businessLogic)
 
 	if options.AuthenticateK8SToken {
 		// get k8s client

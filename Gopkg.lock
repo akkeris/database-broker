@@ -2,7 +2,7 @@
 
 
 [[projects]]
-  digest = "1:0a410dae6069cbbbaf6541ca6f4a6e86abd965335414effa3e99f203daa75eb3"
+  digest = "1:ff02c8fe835fad8037a868f299d73bd57a9dc7d6f89fd5e8877ad8173fa75fe8"
   name = "github.com/aws/aws-sdk-go"
   packages = [
     "aws",
@@ -35,8 +35,8 @@
     "service/sts",
   ]
   pruneopts = "NUT"
-  revision = "56018901efd0b8084af1fb83b7e2604aba53f143"
-  version = "v1.15.31"
+  revision = "d8ab6d22cfd270ded73e7d59feba528ffd963edd"
+  version = "v1.15.40"
 
 [[projects]]
   branch = "master"
@@ -116,6 +116,14 @@
   version = "v0.1.0"
 
 [[projects]]
+  branch = "master"
+  digest = "1:f14d1b50e0075fb00177f12a96dd7addf93d1e2883c25befd17285b779549795"
+  name = "github.com/gopherjs/gopherjs"
+  packages = ["js"]
+  pruneopts = "NUT"
+  revision = "0210a2f0f73c96103378b0b935f39868e5731809"
+
+[[projects]]
   digest = "1:dbd86d229eacaa86a98b10f8fb3e3fc69a1913e0f4e010e7cc1f92bf12edca92"
   name = "github.com/gorilla/context"
   packages = ["."]
@@ -161,6 +169,14 @@
   pruneopts = "NUT"
   revision = "ca39e5af3ece67bbcda3d0f4f56a8e24d9f2dad4"
   version = "1.1.3"
+
+[[projects]]
+  digest = "1:6ddab442e52381bab82fb6c07ef3f4b565ff7ec4b8fae96d8dd4b8573a460597"
+  name = "github.com/jtolds/gls"
+  packages = ["."]
+  pruneopts = "NUT"
+  revision = "77f18212c9c7edc9bd6a33d383a7b545ce62f064"
+  version = "v4.2.1"
 
 [[projects]]
   digest = "1:cdfafb464eb2124eec22bf10c3f9571a1dd90f593c2a62823a82088ef01ec85c"
@@ -277,6 +293,30 @@
   pruneopts = "NUT"
   revision = "bed19ac36ffea109578b1de667c0e5805cb6dc40"
   version = "0.0.3"
+
+[[projects]]
+  digest = "1:1f0b284a6858827de4c27c66b49b2b25df3e16b031c2b57b7892273131e7dd2b"
+  name = "github.com/smartystreets/assertions"
+  packages = [
+    ".",
+    "internal/go-render/render",
+    "internal/oglematchers",
+  ]
+  pruneopts = "NUT"
+  revision = "7678a5452ebea5b7090a6b163f844c133f523da2"
+  version = "1.8.3"
+
+[[projects]]
+  digest = "1:7efd0b2309cdd6468029fa30c808c50a820c9344df07e1a4bbdaf18f282907aa"
+  name = "github.com/smartystreets/goconvey"
+  packages = [
+    "convey",
+    "convey/gotest",
+    "convey/reporting",
+  ]
+  pruneopts = "NUT"
+  revision = "9e8dc3f972df6c8fcc0375ef492c24d0bb204857"
+  version = "1.6.3"
 
 [[projects]]
   digest = "1:3ab855aa584d08db6541ce99dad60c12bd6a328ecb8a7358363887f85c976347"
@@ -522,6 +562,7 @@
     "github.com/pmorie/osb-broker-lib/pkg/server",
     "github.com/prometheus/client_golang/prometheus",
     "github.com/shawn-hurley/osb-broker-k8s-lib/middleware",
+    "github.com/smartystreets/goconvey/convey",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/rest",
     "k8s.io/client-go/tools/clientcmd",
