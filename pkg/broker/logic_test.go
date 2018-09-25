@@ -28,6 +28,29 @@ func TestProvision(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(logic, ShouldNotBeNil)
 
+		Convey("Ensure preprovisioner and storage object on postgres target works", func() {
+			storage, err := InitStorage(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
+			So(err, ShouldBeNil)
+			RunPreprovisionTasks(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"}, "test", storage, 1)
+
+			storage.WarnOnUnfinishedTasks()
+			task, err := storage.PopPendingTask()
+			So(task, ShouldBeNil)
+			So(err, ShouldNotBeNil)
+
+
+			entry, err := storage.GetUnclaimedInstance("50660450-61d3-2c13-a3fd-d379997932fb", "my-new-test-instance")
+			So(err, ShouldBeNil)
+
+			So(entry.Id, ShouldEqual, "my-new-test-instance")
+			So(entry.PlanId, ShouldEqual, "50660450-61d3-2c13-a3fd-d379997932fb")
+			So(entry.Claimed, ShouldEqual, true)
+			So(entry.Status, ShouldEqual, "available")
+
+			err = storage.ReturnClaimedInstance("my-new-test-instance")
+			So(err, ShouldBeNil)
+		})
+
 		Convey("Ensure we can get the catalog and target plan exists", func() {
 			rc := broker.RequestContext{}
 			catalog, err = logic.GetCatalog(&rc)
@@ -35,7 +58,7 @@ func TestProvision(t *testing.T) {
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 1)
 			//service = catalog.Services[0]
-			plan = catalog.Services[0].Plans[0]
+			plan = catalog.Services[0].Plans[1]
 			So(plan.Name, ShouldEqual, "hobby-v9")
 		})
 
@@ -87,10 +110,6 @@ func TestProvision(t *testing.T) {
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, dres.Credentials["DATABASE_URL"].(string))
 
-			var urequest osb.UnbindRequest = osb.UnbindRequest{InstanceID: instanceId, BindingID: "foo"}
-			ures, err := logic.Unbind(&urequest, &c)
-			So(err, ShouldBeNil)
-			So(ures, ShouldNotBeNil)
 		})
 
 		Convey("Ensure creation of roles, rotating roles and removing roles successfully works.", func() {
@@ -154,6 +173,14 @@ func TestProvision(t *testing.T) {
 			_, err = logic.ActionDeleteRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
 			So(err, ShouldBeNil)
 			// TODO: ensure you cant login
+		})
+
+		Convey("Ensure unbind for shared postgres works", func() {
+			var c broker.RequestContext
+			var urequest osb.UnbindRequest = osb.UnbindRequest{InstanceID: instanceId, BindingID: "foo"}
+			ures, err := logic.Unbind(&urequest, &c)
+			So(err, ShouldBeNil)
+			So(ures, ShouldNotBeNil)
 		})
 
 		Convey("Ensure deprovisioner for shared postgres works", func() {

@@ -55,58 +55,62 @@ func UpdateTaskStatus(storage Storage, taskId string, retries int64, result stri
 	}
 }
 
-func RunPreprovisionTasks(ctx context.Context, o Options, namePrefix string, storage Storage) {
-	t := time.NewTicker(time.Second * 60)
+func RunPreprovisionTasks(ctx context.Context, o Options, namePrefix string, storage Storage, wait int64) {
+	t := time.NewTicker(time.Second * time.Duration(wait))
+	dbEntries, err := storage.StartProvisioningTasks()
+	if err != nil {
+		glog.Errorf("Get pending tasks failed: %s\n", err.Error())
+		return
+	}
+	for _, entry := range dbEntries {
+		glog.Infof("Starting preprovisioning database: %s with plan: %s\n", entry.Id, entry.PlanId)
+
+		plan, err := storage.GetPlanByID(entry.PlanId)
+		if err != nil {
+			glog.Errorf("Unable to provision, cannot find plan: %s, %s\n", entry.PlanId, err.Error())
+			storage.NukeInstance(entry.Id)
+			continue
+		}
+
+		provider, err := GetProviderByPlan(namePrefix, plan)
+		if err != nil {
+			glog.Errorf("Unable to provision, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+			storage.NukeInstance(entry.Id)
+			continue
+		}
+
+		dbInstance, err := provider.Provision(entry.Id, plan, "preprovisioned")
+		if err != nil {
+			glog.Errorf("Error provisioning database: %s\n", err.Error())
+			storage.NukeInstance(entry.Id)
+			continue
+		}
+
+		if err = storage.UpdateInstance(dbInstance, dbInstance.Plan.ID); err != nil {
+			glog.Errorf("Error inserting record into provisioned table: %s\n", err.Error())
+
+			if err = provider.Deprovision(dbInstance, false); err != nil {
+				glog.Errorf("Error cleaning up (deprovision failed) after insert record failed but provision succeeded (Database Id:%s Name: %s) %s\n", dbInstance.Id, dbInstance.Name, err.Error())
+				if _, err = storage.AddTask(dbInstance.Id, DeleteTask, dbInstance.Name); err != nil {
+					glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! (%s): %s\n", dbInstance.Name, err.Error())
+				}
+			}
+			continue
+		}
+		if dbInstance.Status != "available" {
+			if _, err = storage.AddTask(dbInstance.Id, ResyncFromProviderUntilAvailableTask, ""); err != nil {
+				glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
+			}
+		}
+		glog.Infof("Finished preprovisioning database: %s with plan: %s\n", entry.Id, entry.PlanId)
+		<-t.C
+	}
+}
+
+func TickTocPreprovisionTasks(ctx context.Context, o Options, namePrefix string, storage Storage) {
 	next_check := time.NewTicker(time.Second * 60 * 5)
 	for {
-		dbEntries, err := storage.StartProvisioningTasks()
-		if err != nil {
-			glog.Errorf("Get pending tasks failed: %s\n", err.Error())
-			return
-		}
-		for _, entry := range dbEntries {
-			glog.Infof("Starting preprovisioning database: %s with plan: %s\n", entry.Id, entry.PlanId)
-
-			plan, err := storage.GetPlanByID(entry.PlanId)
-			if err != nil {
-				glog.Errorf("Unable to provision, cannot find plan: %s, %s\n", entry.PlanId, err.Error())
-				storage.NukeInstance(entry.Id)
-				continue
-			}
-
-			provider, err := GetProviderByPlan(namePrefix, plan)
-			if err != nil {
-				glog.Errorf("Unable to provision, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-				storage.NukeInstance(entry.Id)
-				continue
-			}
-
-			dbInstance, err := provider.Provision(entry.Id, plan, "preprovisioned")
-			if err != nil {
-				glog.Errorf("Error provisioning database: %s\n", err.Error())
-				storage.NukeInstance(entry.Id)
-				continue
-			}
-
-			if err = storage.UpdateInstance(dbInstance, dbInstance.Plan.ID); err != nil {
-				glog.Errorf("Error inserting record into provisioned table: %s\n", err.Error())
-
-				if err = provider.Deprovision(dbInstance, false); err != nil {
-					glog.Errorf("Error cleaning up (deprovision failed) after insert record failed but provision succeeded (Database Id:%s Name: %s) %s\n", dbInstance.Id, dbInstance.Name, err.Error())
-					if _, err = storage.AddTask(dbInstance.Id, DeleteTask, dbInstance.Name); err != nil {
-						glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! (%s): %s\n", dbInstance.Name, err.Error())
-					}
-				}
-				continue
-			}
-			if dbInstance.Status != "available" {
-				if _, err = storage.AddTask(dbInstance.Id, ResyncFromProviderUntilAvailableTask, ""); err != nil {
-					glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
-				}
-			}
-			glog.Infof("Finished preprovisioning database: %s with plan: %s\n", entry.Id, entry.PlanId)
-			<-t.C
-		}
+		RunPreprovisionTasks(ctx, o, namePrefix, storage, 60)
 		<-next_check.C
 	}
 }
@@ -292,6 +296,6 @@ func RunBackgroundTasks(ctx context.Context, o Options) error {
 		return err
 	}
 
-	go RunPreprovisionTasks(ctx, o, namePrefix, storage)
+	go TickTocPreprovisionTasks(ctx, o, namePrefix, storage)
 	return RunWorkerTasks(ctx, o, namePrefix, storage)
 }
