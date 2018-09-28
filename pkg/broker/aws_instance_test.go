@@ -55,10 +55,8 @@ func TestAwsProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(res, ShouldNotBeNil)
 
-			t := time.NewTicker(time.Second * 30)
-
 			var dbInstance *DbInstance = nil
-
+			t := time.NewTicker(time.Second * 30)
 			for i := 0; i < 30; i++ {
 				dbInstance, err = logic.GetInstanceById(instanceId)
 				fmt.Printf(".")
@@ -94,6 +92,46 @@ func TestAwsProvision(t *testing.T) {
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, dres.Credentials["DATABASE_URL"].(string))
 
+		})
+
+		Convey("Ensure logging works for instance", func() {			
+			var c broker.RequestContext
+
+			logsres, err := logic.ActionListLogs(instanceId, map[string]string{}, &c)
+			logs := logsres.([]DatabaseLogs)
+			So(err, ShouldBeNil)
+			So(logs, ShouldNotBeNil)
+			So(len(logs), ShouldBeGreaterThan, 0)
+			So(logs[0].Name, ShouldNotBeNil)
+
+			logpath := strings.Split(*logs[0].Name, "/")
+			logdataresp, err := logic.ActionGetLogs(instanceId, map[string]string{"dir":logpath[0], "file":logpath[1]}, &c)
+			So(err, ShouldBeNil)
+			So(logdataresp, ShouldNotBeNil)
+
+			logdata := logdataresp.(string)
+			So(logdata, ShouldNotEqual, "")
+
+		})
+
+		Convey("Ensure restarting aws instance works", func() {
+			_, err = logic.ActionRestart(instanceId, map[string]string{}, &c)
+			So(err, ShouldBeNil)
+			dbInstance, err = logic.GetInstanceById(instanceId)
+			So(err, ShouldBeNil)
+			So(InProgress(dbInstance.Status), ShouldEqual, true)
+
+			t := time.NewTicker(time.Second * 30)
+			for i := 0; i < 30; i++ {
+				dbInstance, err = logic.GetInstanceById(instanceId)
+				fmt.Printf(".")
+				if dbInstance.Ready == true && dbInstance.Status == "available" {
+					break;
+				}
+				<-t.C
+			}
+			So(dbInstance, ShouldNotBeNil)
+			So(dbInstance.Ready, ShouldEqual, true)
 		})
 
 		Convey("Ensure unbind for aws instance works", func() {
