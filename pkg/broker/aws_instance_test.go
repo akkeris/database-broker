@@ -5,6 +5,7 @@ import (
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/pmorie/osb-broker-lib/pkg/broker"
 	. "github.com/smartystreets/goconvey/convey"
+	"strings"
 	"os"
 	"testing"
 	_ "github.com/lib/pq"
@@ -94,9 +95,8 @@ func TestAwsProvision(t *testing.T) {
 
 		})
 
-		Convey("Ensure logging works for instance", func() {			
+		Convey("Ensure logging works for instance", func() {
 			var c broker.RequestContext
-
 			logsres, err := logic.ActionListLogs(instanceId, map[string]string{}, &c)
 			logs := logsres.([]DatabaseLogs)
 			So(err, ShouldBeNil)
@@ -114,10 +114,11 @@ func TestAwsProvision(t *testing.T) {
 
 		})
 
-		Convey("Ensure restarting aws instance works", func() {
+		Convey("Ensure restarting aws instance works", func() {			
+			var c broker.RequestContext
 			_, err = logic.ActionRestart(instanceId, map[string]string{}, &c)
 			So(err, ShouldBeNil)
-			dbInstance, err = logic.GetInstanceById(instanceId)
+			dbInstance, err := logic.GetInstanceById(instanceId)
 			So(err, ShouldBeNil)
 			So(InProgress(dbInstance.Status), ShouldEqual, true)
 
