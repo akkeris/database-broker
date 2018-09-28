@@ -65,13 +65,13 @@ You can create new services and plans by provider by modifying the entries in it
 
 Open your favorite postgres client and connect to `$DATABASE_URL` above, ensure you've deployed the database broker before continuing. Each service and plan will be displayed to the user, the plans a provider specific and the column `provider_private_details` has different information depending on the provider for information on what should be in this column see the provider specific settings below. 
 
-**AWS Provider Specific Settings**
+**AWS Instance Provider Specific Settings**
 
 Setting the provider specific private settings in the plan is important to do carefully as these settings are whats ACTUALLY created. You can use `${ENV_VAR_NAME}` to fill in any portion of the provider settings with an environment variable. Setting a value to null will request to use the default value from AWS. The description, type and allowed values for each of these types can be found here: https://docs.aws.amazon.com/sdk-for-go/api/service/rds/#CreateDBInstanceInput
 
-Note: the following fields should not be set and will always be overridden (so do not set them in the settings) `Tags`, `DBInstanceIdentifier`, `DBName`, `MasterUserPassword`, `MasterUsername`, `Engine`, `EngineVersion` and `VpcSecurityGroupIds`.  The `VpcSecurityGroupIds` are tied to region and must be set via `AWS_VPC_SECURITY_GROUPS`.
+Note: the following fields should not be set and will always be overridden (so do not set them in the settings) `Tags`, `DBInstanceIdentifier`, `DBName`, `MasterUserPassword`, `MasterUsername`, `Engine`, `EngineVersion` and `VpcSecurityGroupIds`.  The `VpcSecurityGroupIds` are tied to region and must be set via `AWS_VPC_SECURITY_GROUPS`. In addition `DBClusterIdentifier` should always be null.
 
-***Sample AWS Provider Specific Settings***
+***Sample AWS Instance Provider Specific Settings***
 
 In this example 100 gb of storage and a `db.t2.medium` class server are provisioned. All other options use the default AWS settings provided.
 
@@ -124,6 +124,92 @@ In this example 100 gb of storage and a `db.t2.medium` class server are provisio
 }
 ```
 
+**AWS Cluster Specific Settings**
+
+Similar to the AWS Instance specific settings these are the parameters used in calls to both CreateDBClusuter and CreateDBInstance subsequently.  See AWS Instance Specific Settings for more information on what fields are ignored or set automatically for the Instance portion.  For the cluster property (and portion) the fields `DBClusterIdentifier`, `DatabaseName`, `Engine`, `VpcSecurityGroupIds`, `MasterUserPassword`, `MasterUsername` and `Tags` are automatically overwritten, do not set these.  The VPC Security Group Ids are always set by the security groups defined in the environment. 
+
+***Sample AWS Cluster Specific Settings***
+
+```
+{  
+   "Instance":{  
+      "AllocatedStorage":null,
+      "AutoMinorVersionUpgrade":null,
+      "AvailabilityZone":null,
+      "BackupRetentionPeriod":null,
+      "CharacterSetName":null,
+      "CopyTagsToSnapshot":null,
+      "DBClusterIdentifier":null,
+      "DBInstanceClass":null,
+      "DBInstanceIdentifier":null,
+      "DBName":null,
+      "DBParameterGroupName":null,
+      "DBSecurityGroups":null,
+      "DBSubnetGroupName":null,
+      "Domain":null,
+      "DomainIAMRoleName":null,
+      "EnableCloudwatchLogsExports":null,
+      "EnableIAMDatabaseAuthentication":null,
+      "EnablePerformanceInsights":null,
+      "Engine":null,
+      "EngineVersion":null,
+      "Iops":null,
+      "KmsKeyId":null,
+      "LicenseModel":null,
+      "MasterUserPassword":null,
+      "MasterUsername":null,
+      "MonitoringInterval":null,
+      "MonitoringRoleArn":null,
+      "MultiAZ":null,
+      "OptionGroupName":null,
+      "PerformanceInsightsKMSKeyId":null,
+      "PerformanceInsightsRetentionPeriod":null,
+      "Port":null,
+      "PreferredBackupWindow":null,
+      "PreferredMaintenanceWindow":null,
+      "ProcessorFeatures":null,
+      "PromotionTier":null,
+      "PubliclyAccessible":null,
+      "StorageEncrypted":null,
+      "StorageType":null,
+      "Tags":null,
+      "TdeCredentialArn":null,
+      "TdeCredentialPassword":null,
+      "Timezone":null,
+      "VpcSecurityGroupIds":null
+   },
+   "Cluster":{  
+      "AvailabilityZones":null,
+      "BacktrackWindow":null,
+      "BackupRetentionPeriod":null,
+      "CharacterSetName":null,
+      "DBClusterIdentifier":null,
+      "DBClusterParameterGroupName":null,
+      "DBSubnetGroupName":null,
+      "DatabaseName":null,
+      "DestinationRegion":null,
+      "EnableCloudwatchLogsExports":null,
+      "EnableIAMDatabaseAuthentication":null,
+      "Engine":null,
+      "EngineMode":null,
+      "EngineVersion":null,
+      "KmsKeyId":null,
+      "MasterUserPassword":null,
+      "MasterUsername":null,
+      "OptionGroupName":null,
+      "Port":null,
+      "PreSignedUrl":null,
+      "PreferredBackupWindow":null,
+      "PreferredMaintenanceWindow":null,
+      "ReplicationSourceIdentifier":null,
+      "ScalingConfiguration":null,
+      "SourceRegion":null,
+      "StorageEncrypted":null,
+      "Tags":null,
+      "VpcSecurityGroupIds":null
+   }
+}
+```
 
 **Postgres Shared Specific Settings**
 

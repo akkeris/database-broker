@@ -514,7 +514,7 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 					glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
 				}
 				// This is a hack to support callbacks, hopefully this will become an OSB standard.
-				if c.Request.URL.Query().Get("webhook") != "" && c.Request.URL.Query().Get("secret") != "" {
+				if c != nil && c.Request != nil && c.Request.URL != nil && c.Request.URL.Query().Get("webhook") != "" && c.Request.URL.Query().Get("secret") != "" {
 					// Schedule a callback
 					byteData, err := json.Marshal(WebhookTaskMetadata{Url: c.Request.URL.Query().Get("webhook"), Secret: c.Request.URL.Query().Get("secret")})
 					if err != nil {

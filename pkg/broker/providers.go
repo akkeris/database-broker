@@ -8,9 +8,9 @@ type Providers string
 
 const (
 	AWSInstance    Providers = "aws-instance"
-	AWSCluster               = "aws-cluster"
-	PostgresShared           = "postgres-shared"
-	Unknown                  = "unknown"
+	AWSCluster     Providers = "aws-cluster"
+	PostgresShared Providers = "postgres-shared"
+	Unknown        Providers = "unknown"
 )
 
 func GetProvidersFromString(str string) Providers {
@@ -57,6 +57,8 @@ type Provider interface {
 func GetProviderByPlan(namePrefix string, plan *ProviderPlan) (Provider, error) {
 	if plan.Provider == AWSInstance {
 		return NewAWSInstanceProvider(namePrefix)
+	} else if plan.Provider == AWSCluster {
+		return NewAWSClusteredProvider(namePrefix)
 	}
 	return NewPostgresSharedProvider(namePrefix)
 }
