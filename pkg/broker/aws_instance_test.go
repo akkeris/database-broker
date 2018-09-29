@@ -135,6 +135,52 @@ func TestAwsProvision(t *testing.T) {
 			So(dbInstance.Ready, ShouldEqual, true)
 		})
 
+
+		Convey("Ensure backup and restores work", func() {
+			var c broker.RequestContext
+			var dbInstance *DbInstance = nil
+			
+			backupsresp, err := logic.ActionListBackups(instanceId, map[string]string{}, &c)
+			So(err, ShouldBeNil)
+
+			backups := backupsresp.([]DatabaseBackupSpec)
+			So(len(backups), ShouldBeGreaterThan, 0)
+
+			backupresp, err := logic.ActionCreateBackup(instanceId, map[string]string{}, &c)
+			So(err, ShouldBeNil)
+
+			backup := backupresp.(DatabaseBackupSpec)
+
+			gbackupresp, err := logic.ActionGetBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
+			gbackup := gbackupresp.(DatabaseBackupSpec)
+			So(*backup.Id, ShouldEqual, *gbackup.Id)
+
+			t := time.NewTicker(time.Second * 30)
+			for i := 0; i < 30; i++ {
+				dbInstance, err = logic.GetInstanceById(instanceId)
+				fmt.Printf(".")
+				if dbInstance.Ready == true && dbInstance.Status == "available" {
+					break;
+				}
+				<-t.C
+			}
+			So(dbInstance, ShouldNotBeNil)
+
+			_, err = logic.ActionRestoreBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
+			So(err, ShouldBeNil)
+
+			for i := 0; i < 30; i++ {
+				dbInstance, err = logic.GetInstanceById(instanceId)
+				fmt.Printf(".")
+				if dbInstance.Ready == true && dbInstance.Status == "available" {
+					break;
+				}
+				<-t.C
+			}
+			So(dbInstance, ShouldNotBeNil)
+
+		})	
+
 		Convey("Ensure unbind for aws instance works", func() {
 			var c broker.RequestContext
 			var urequest osb.UnbindRequest = osb.UnbindRequest{InstanceID: instanceId, BindingID: "foo"}
