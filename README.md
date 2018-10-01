@@ -220,13 +220,27 @@ Sort of self explanatory, the username and password MUST be the master account, 
 You can use `${ENV_VAR_NAME}` to fill in any portion of the provider settings with an environment variable.
 
 ```
-{"master_username":"username", "master_password":"password", "host":"host", "port":"port", "engine":"postgres", "engine_version":"9.6.6"}
+{
+   "master_username":"username",
+   "master_password":"password",
+   "host":"host",
+   "port":"port",
+   "engine":"postgres",
+   "engine_version":"9.6.6"
+}
 ```
 
 For example in the above if you didn't want to store the master password in the database you can retrieve it from an enviornment variable:
 
 ```
-{"master_username":"username", "master_password":"${MASTER_SHAREDPG_PASSWORD}", "host":"host", "port":"port", "engine":"postgres", "engine_version":"9.6.6"}
+{
+   "master_username":"username",
+   "master_password":"${MASTER_SHAREDPG_PASSWORD}",
+   "host":"host",
+   "port":"port",
+   "engine":"postgres",
+   "engine_version":"9.6.6"
+}
 ```
 
 ### 4. Setup Task Worker
@@ -243,3 +257,6 @@ You'll need to deploy one or multiple (depending on your load) task workers with
 ### Testing
 
 `make test`
+
+You can also set `STACKIMPACT` as an environment variable to have profiling information sent to stack impact. 
+

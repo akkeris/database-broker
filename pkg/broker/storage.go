@@ -64,7 +64,7 @@ begin
     end if;
 
     if not exists (select 1 from pg_type where typname = 'providertype') then
-        create type providertype as enum('aws-instance', 'aws-cluster', 'postgres-shared');
+        create type providertype as enum('aws-instance', 'aws-cluster', 'gcloud-instance', 'postgres-shared');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'enginetype') then

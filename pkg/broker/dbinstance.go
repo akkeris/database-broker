@@ -63,14 +63,19 @@ func IsReady(status string) bool {
 	return status == "available" ||
 		status == "configuring-enhanced-monitoring" ||
 		status == "storage-optimization" ||
-		status == "backing-up"
+		status == "backing-up" ||
+		// gcloud states
+		status == "RUNNABLE"
 }
 
 func InProgress(status string) bool {
 	return status == "creating" || status == "starting" || status == "modifying" ||
 		status == "rebooting" || status == "moving-to-vpc" ||
 		status == "renaming" || status == "upgrading" || status == "backtracking" ||
-		status == "maintenance" || status == "resetting-master-credentials"
+		status == "maintenance" || status == "resetting-master-credentials" ||
+		// gclouud states
+		status == "PENDING_CREATE" || status == "MAINTENANCE"
+
 }
 
 func CanBeDeleted(status string) bool {

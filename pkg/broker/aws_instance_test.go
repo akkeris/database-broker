@@ -11,6 +11,7 @@ import (
 	_ "github.com/lib/pq"
 	"fmt"
 	"time"
+	"net/url"
 )
 
 func TestAwsProvision(t *testing.T) {
@@ -20,6 +21,7 @@ func TestAwsProvision(t *testing.T) {
 	var logic *BusinessLogic
 	var catalog *broker.CatalogResponse
 	var plan osb.Plan
+	var dbUrl string
 	var instanceId string = RandomString(12)
 	var err error
 	Convey("Given a fresh provisioner.", t, func() {
@@ -90,6 +92,7 @@ func TestAwsProvision(t *testing.T) {
 			gbres, err := logic.GetBinding(&gbrequest, &c)
 			So(err, ShouldBeNil)
 			So(gbres, ShouldNotBeNil)
+			dbUrl = gbres.Credentials["DATABASE_URL"].(string)
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, dres.Credentials["DATABASE_URL"].(string))
 
@@ -152,20 +155,22 @@ func TestAwsProvision(t *testing.T) {
 			backup := backupresp.(DatabaseBackupSpec)
 
 			gbackupresp, err := logic.ActionGetBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
+			So(err, ShouldBeNil)
 			gbackup := gbackupresp.(DatabaseBackupSpec)
 			So(*backup.Id, ShouldEqual, *gbackup.Id)
 
 			t := time.NewTicker(time.Second * 30)
 			for i := 0; i < 30; i++ {
-				dbInstance, err = logic.GetInstanceById(instanceId)
+				gbackupresp, err = logic.ActionGetBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
+				So(err, ShouldBeNil)
+				gbackup = gbackupresp.(DatabaseBackupSpec)
 				fmt.Printf(".")
-				if dbInstance.Ready == true && dbInstance.Status == "available" {
+				if gbackup.Status != nil && *gbackup.Status == "available" {
 					break;
 				}
 				<-t.C
 			}
-			So(dbInstance, ShouldNotBeNil)
-
+			
 			_, err = logic.ActionRestoreBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
 			So(err, ShouldBeNil)
 
@@ -179,7 +184,56 @@ func TestAwsProvision(t *testing.T) {
 			}
 			So(dbInstance, ShouldNotBeNil)
 
-		})	
+		})
+
+		Convey("Ensure creation of roles, rotating roles and removing roles successfully works.", func() {
+			So(dbUrl, ShouldNotEqual, "")
+			
+			var c broker.RequestContext
+			resp, err := logic.ActionCreateRole(instanceId, map[string]string{}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			dbReadOnlySpec := resp.(DatabaseUrlSpec)
+			dbFullUrl, err := url.Parse(dbUrl)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			So(dbFullUrl.User.Username(), ShouldNotEqual, dbReadOnlySpec.Username)
+			So(dbFullUrl.Host + dbFullUrl.Path, ShouldEqual, dbReadOnlySpec.Endpoint)
+
+			resps, err := logic.ActionListRoles(instanceId, map[string]string{}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			roles := resps.([]DatabaseUrlSpec)
+			So(len(roles), ShouldEqual, 1)
+			So(roles[0].Username, ShouldEqual, dbReadOnlySpec.Username)
+
+			resprole, err := logic.ActionGetRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			getrole := resprole.(DatabaseUrlSpec)
+			So(getrole.Username, ShouldEqual, dbReadOnlySpec.Username)
+
+			rotroleresp, err := logic.ActionRotateRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			rotrole := rotroleresp.(DatabaseUrlSpec)
+			So(err, ShouldBeNil)
+			So(rotrole.Username, ShouldEqual, dbReadOnlySpec.Username)
+			So(rotrole.Password, ShouldNotEqual, dbReadOnlySpec.Password)
+
+			_, err = logic.ActionDeleteRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
+			So(err, ShouldBeNil)
+			// TODO: ensure you cant login
+		})
 
 		Convey("Ensure unbind for aws instance works", func() {
 			var c broker.RequestContext

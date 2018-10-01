@@ -9,6 +9,7 @@ type Providers string
 const (
 	AWSInstance    Providers = "aws-instance"
 	AWSCluster     Providers = "aws-cluster"
+	GCloudInstance Providers = "gcloud-instance"
 	PostgresShared Providers = "postgres-shared"
 	Unknown        Providers = "unknown"
 )
@@ -18,6 +19,8 @@ func GetProvidersFromString(str string) Providers {
 		return AWSInstance
 	} else if str == "aws-cluster" {
 		return AWSCluster
+	}  else if str == "gcloud-instance" {
+		return PostgresShared
 	} else if str == "postgres-shared" {
 		return PostgresShared
 	}
@@ -59,6 +62,8 @@ func GetProviderByPlan(namePrefix string, plan *ProviderPlan) (Provider, error) 
 		return NewAWSInstanceProvider(namePrefix)
 	} else if plan.Provider == AWSCluster {
 		return NewAWSClusteredProvider(namePrefix)
+	}  else if plan.Provider == GCloudInstance {
+		return NewGCloudInstanceProvider(namePrefix)
 	}
 	return NewPostgresSharedProvider(namePrefix)
 }

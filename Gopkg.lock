@@ -2,6 +2,14 @@
 
 
 [[projects]]
+  digest = "1:5c3894b2aa4d6bead0ceeea6831b305d62879c871780e7b76296ded1b004bc57"
+  name = "cloud.google.com/go"
+  packages = ["compute/metadata"]
+  pruneopts = "NUT"
+  revision = "97efc2c9ffd9fe8ef47f7f3203dc60bbca547374"
+  version = "v0.28.0"
+
+[[projects]]
   digest = "1:ff02c8fe835fad8037a868f299d73bd57a9dc7d6f89fd5e8877ad8173fa75fe8"
   name = "github.com/aws/aws-sdk-go"
   packages = [
@@ -336,10 +344,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:5e866ec0bc614574c51e2fc78967e25a38549d9de70c36913d541584eb63ee68"
+  digest = "1:cfbb4c75923318ccefb577444267fdff14cb5a07e4739a47e3ceed3b40991f01"
   name = "golang.org/x/net"
   packages = [
     "context",
+    "context/ctxhttp",
     "http2",
     "http2/hpack",
     "idna",
@@ -347,6 +356,20 @@
   ]
   pruneopts = "NUT"
   revision = "61147c48b25b599e5b561d2e9c4f3e1ef489ca41"
+
+[[projects]]
+  branch = "master"
+  digest = "1:bc2b221d465bb28ce46e8d472ecdc424b9a9b541bd61d8c311c5f29c8dd75b1b"
+  name = "golang.org/x/oauth2"
+  packages = [
+    ".",
+    "google",
+    "internal",
+    "jws",
+    "jwt",
+  ]
+  pruneopts = "NUT"
+  revision = "d2e6202438beef2727060aa7cabdd924d92ebfd9"
 
 [[projects]]
   branch = "master"
@@ -389,6 +412,38 @@
   packages = ["rate"]
   pruneopts = "NUT"
   revision = "26559e0f760e39c24d730d3224364aef164ee23f"
+
+[[projects]]
+  branch = "master"
+  digest = "1:a317fa714a3bedc316ba69ef5dae4be62353eaf8e65ce44d600f67ae03dcd847"
+  name = "google.golang.org/api"
+  packages = [
+    "gensupport",
+    "googleapi",
+    "googleapi/internal/uritemplates",
+    "sqladmin/v1beta4",
+  ]
+  pruneopts = "NUT"
+  revision = "5da02d31af7d15cc65a207f8a46a6e3c50d41178"
+
+[[projects]]
+  digest = "1:e2da54c7866453ac5831c61c7ec5d887f39328cac088c806553303bff4048e6f"
+  name = "google.golang.org/appengine"
+  packages = [
+    ".",
+    "internal",
+    "internal/app_identity",
+    "internal/base",
+    "internal/datastore",
+    "internal/log",
+    "internal/modules",
+    "internal/remote_api",
+    "internal/urlfetch",
+    "urlfetch",
+  ]
+  pruneopts = "NUT"
+  revision = "ae0ab99deb4dc413a2b4bd6c8bdd0eb67f1e4d06"
+  version = "v1.2.0"
 
 [[projects]]
   digest = "1:2d1fbdc6777e5408cabeb02bf336305e724b925ff4546ded0fa8715a7267922a"
@@ -563,6 +618,9 @@
     "github.com/prometheus/client_golang/prometheus",
     "github.com/shawn-hurley/osb-broker-k8s-lib/middleware",
     "github.com/smartystreets/goconvey/convey",
+    "golang.org/x/net/context",
+    "golang.org/x/oauth2/google",
+    "google.golang.org/api/sqladmin/v1beta4",
     "k8s.io/client-go/kubernetes",
     "k8s.io/client-go/rest",
     "k8s.io/client-go/tools/clientcmd",

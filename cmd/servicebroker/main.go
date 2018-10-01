@@ -16,6 +16,7 @@ import (
 	clientset "k8s.io/client-go/kubernetes"
 	clientrest "k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
+	"github.com/stackimpact/stackimpact-go"
 
 	"github.com/akkeris/database-broker/pkg/broker"
 	"github.com/pmorie/osb-broker-lib/pkg/metrics"
@@ -51,6 +52,12 @@ func init() {
 }
 
 func main() {
+	if os.Getenv("STACKIMPACT") != "" {
+		stackimpact.Start(stackimpact.Options{
+			AgentKey: os.Getenv("STACKIMPACT"),
+			AppName:  "Database Broker",
+		})
+	}
 	if err := run(); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 		glog.Fatalln(err)
 	}
