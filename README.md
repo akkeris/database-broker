@@ -128,6 +128,8 @@ In this example 100 gb of storage and a `db.t2.medium` class server are provisio
 
 Similar to the AWS Instance specific settings these are the parameters used in calls to both CreateDBClusuter and CreateDBInstance subsequently.  See AWS Instance Specific Settings for more information on what fields are ignored or set automatically for the Instance portion.  For the cluster property (and portion) the fields `DBClusterIdentifier`, `DatabaseName`, `Engine`, `VpcSecurityGroupIds`, `MasterUserPassword`, `MasterUsername` and `Tags` are automatically overwritten, do not set these.  The VPC Security Group Ids are always set by the security groups defined in the environment. 
 
+IMPORTANT: Becareful changing instance settings, most settings should be on the cluster property and are very rarely permitted on the instance settings.
+
 ***Sample AWS Cluster Specific Settings***
 
 ```
@@ -247,6 +249,17 @@ For example in the above if you didn't want to store the master password in the 
 
 You'll need to deploy one or multiple (depending on your load) task workers with the same config or settings specified in Step 1. but with a different startup command, append the `-background-tasks` option to the service brokers startup command to put it into worker mode.  You MUST have at least 1 worker.
 
+## Running
+
+As described in the setup instructions you should have two deployments for your application, the first is the API that receives requests, the other is the tasks process.
+
+**Deploying in Kubernetes**
+
+See the `manifests/deployment.yml` for a kubernetes deployments description.
+
+**Debugging**
+
+You can optionally pass in the startup options `-logtostderr=1 -stderrthreshold 0` to enable debugging, in addition you can set `GLOG_logtostderr=1` to debug via the environment.  See glog for more information on enabling various levels. You can also set `STACKIMPACT` as an environment variable to have profiling information sent to stack impact. 
 
 ## Contributing and Building
 
@@ -258,5 +271,5 @@ You'll need to deploy one or multiple (depending on your load) task workers with
 
 `make test`
 
-You can also set `STACKIMPACT` as an environment variable to have profiling information sent to stack impact. 
+Note, to run the aws instance and cluster tests `TEST_AWS_CLUSTER` and `TEST_AWS_INSTANCE` must be set to true.
 

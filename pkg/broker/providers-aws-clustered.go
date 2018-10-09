@@ -3,11 +3,14 @@ package broker
 import (
 	"encoding/json"
 	"errors"
+	"github.com/golang/glog"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds"
 	"os"
 	"strings"
+	"time"
+	"fmt"
 )
 
 type AWSClusteredProvider struct {
@@ -59,12 +62,8 @@ func (provider AWSClusteredProvider) Provision(Id string, plan *ProviderPlan, Ow
 	settings.Cluster.Tags = []*rds.Tag{{Key: aws.String("BillingCode"), Value: aws.String(Owner)}}
 	settings.Cluster.VpcSecurityGroupIds = []*string{aws.String(provider.awsVpcSecurityGroup)}
 
-	settings.Instance.DBName = settings.Cluster.DatabaseName
 	settings.Instance.DBInstanceIdentifier = settings.Cluster.DatabaseName
-	settings.Instance.MasterUsername = aws.String(strings.ToLower("u" + RandomString(8)))
-	settings.Instance.MasterUserPassword = aws.String(RandomString(16))
 	settings.Instance.Tags = []*rds.Tag{{Key: aws.String("BillingCode"), Value: aws.String(Owner)}}
-	settings.Instance.VpcSecurityGroupIds = []*string{aws.String(provider.awsVpcSecurityGroup)}
 	settings.Instance.DBClusterIdentifier = settings.Cluster.DatabaseName
 
 	_, err := provider.awssvc.CreateDBCluster(&settings.Cluster)
@@ -77,13 +76,49 @@ func (provider AWSClusteredProvider) Provision(Id string, plan *ProviderPlan, Ow
 }
 
 func (provider AWSClusteredProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
-	err := provider.awsInstanceProvider.Deprovision(dbInstance, takeSnapshot)
+	resp, err := provider.awssvc.DescribeDBClusters(&rds.DescribeDBClustersInput{
+		DBClusterIdentifier: 	aws.String(dbInstance.Name),
+		MaxRecords:           	aws.Int64(20),
+	})
 	if err != nil {
-		return nil
+		return  err
 	}
+	if len(resp.DBClusters) != 1 {
+		return errors.New("Found none or multiples matching this cluster name.")
+	}
+	
+	var dbPrimaryIdentifier *string = nil
+	// delete all non-primary (read only replicas, etc)
+	for _, member := range resp.DBClusters[0].DBClusterMembers {
+		if member.IsClusterWriter != nil && *member.IsClusterWriter == true {
+			dbPrimaryIdentifier = member.DBInstanceIdentifier
+		} else {
+			_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+				DBInstanceIdentifier:      member.DBInstanceIdentifier,
+				SkipFinalSnapshot:         aws.Bool(!takeSnapshot),
+			})
+			if err != nil {
+				return err
+			}
+		}
+	}
+	// delete primary database
+	if dbPrimaryIdentifier == nil {
+		return errors.New("Unable to find primary database identifier")
+	}
+	_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:      dbPrimaryIdentifier,
+		SkipFinalSnapshot:         aws.Bool(!takeSnapshot),
+	})
+	if err != nil {
+		return err
+	}
+	// delete cluster, you can't delete the cluster until all of the db instances
+	// have been marked as removed.
 	_, err = provider.awssvc.DeleteDBCluster(&rds.DeleteDBClusterInput{
 		DBClusterIdentifier: aws.String(dbInstance.Name),
 		SkipFinalSnapshot:   aws.Bool(!takeSnapshot),
+		FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
 	})
 	return err
 }
@@ -126,19 +161,198 @@ func (provider AWSClusteredProvider) Untag(dbInstance *DbInstance, Name string) 
 }
 
 func (provider AWSClusteredProvider) GetBackup(dbInstance *DbInstance, Id string) (DatabaseBackupSpec, error) {
-	return provider.awsInstanceProvider.GetBackup(dbInstance, Id)
+	snapshots, err := provider.awssvc.DescribeDBClusterSnapshots(&rds.DescribeDBClusterSnapshotsInput{
+		DBClusterIdentifier: aws.String(dbInstance.Name),
+		DBClusterSnapshotIdentifier: aws.String(Id),
+	})
+	if err != nil {
+		return DatabaseBackupSpec{}, err
+	}
+	if len(snapshots.DBClusterSnapshots) != 1 {
+		return DatabaseBackupSpec{}, errors.New("Not found")
+	}
+
+	created := time.Now().UTC().Format(time.RFC3339)
+	if snapshots.DBClusterSnapshots[0].SnapshotCreateTime != nil {
+		created = snapshots.DBClusterSnapshots[0].SnapshotCreateTime.UTC().Format(time.RFC3339)
+	}
+
+	return DatabaseBackupSpec{
+		Database: DatabaseSpec{
+			Name: dbInstance.Name,
+		},
+		Id:       snapshots.DBClusterSnapshots[0].DBClusterSnapshotIdentifier,
+		Progress: snapshots.DBClusterSnapshots[0].PercentProgress,
+		Status:   snapshots.DBClusterSnapshots[0].Status,
+		Created:  created,
+	}, nil
 }
 
 func (provider AWSClusteredProvider) ListBackups(dbInstance *DbInstance) ([]DatabaseBackupSpec, error) {
-	return provider.awsInstanceProvider.ListBackups(dbInstance)
+	snapshots, err := provider.awssvc.DescribeDBClusterSnapshots(&rds.DescribeDBClusterSnapshotsInput{DBClusterIdentifier: aws.String(dbInstance.Name)})
+	if err != nil {
+		return []DatabaseBackupSpec{}, err
+	}
+	out := make([]DatabaseBackupSpec, 0)
+	for _, snapshot := range snapshots.DBClusterSnapshots {
+		created := time.Now().UTC().Format(time.RFC3339)
+		if snapshot.SnapshotCreateTime != nil {
+			created = snapshot.SnapshotCreateTime.UTC().Format(time.RFC3339)
+		}
+		out = append(out, DatabaseBackupSpec{
+			Database: DatabaseSpec{
+				Name: dbInstance.Name,
+			},
+			Id:       snapshot.DBClusterSnapshotIdentifier,
+			Progress: snapshot.PercentProgress,
+			Status:   snapshot.Status,
+			Created:  created,
+		})
+	}
+	return out, nil
 }
 
 func (provider AWSClusteredProvider) CreateBackup(dbInstance *DbInstance) (DatabaseBackupSpec, error) {
-	return provider.awsInstanceProvider.CreateBackup(dbInstance)
+	snapshot_name := (dbInstance.Name + "-manual-" + RandomString(10))
+	snapshot, err := provider.awssvc.CreateDBClusterSnapshot(&rds.CreateDBClusterSnapshotInput{
+		DBClusterIdentifier: aws.String(dbInstance.Name),
+		DBClusterSnapshotIdentifier: aws.String(snapshot_name),
+	})
+	if err != nil {
+		return DatabaseBackupSpec{}, err
+	}
+	created := time.Now().UTC().Format(time.RFC3339)
+	if snapshot.DBClusterSnapshot.SnapshotCreateTime != nil {
+		created = snapshot.DBClusterSnapshot.SnapshotCreateTime.UTC().Format(time.RFC3339)
+	}
+
+	return DatabaseBackupSpec{
+		Database: DatabaseSpec{
+			Name: dbInstance.Name,
+		},
+		Id:       snapshot.DBClusterSnapshot.DBClusterSnapshotIdentifier,
+		Progress: snapshot.DBClusterSnapshot.PercentProgress,
+		Status:   snapshot.DBClusterSnapshot.Status,
+		Created:  created,
+	}, nil
 }
 
 func (provider AWSClusteredProvider) RestoreBackup(dbInstance *DbInstance, Id string) error {
-	return provider.awsInstanceProvider.RestoreBackup(dbInstance, Id)
+	var settings AWSClusteredProviderPrivatePlanSettings
+	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
+		return err
+	}
+
+	// For AWS, the best strategy for restoring (reliably) a database is to rename the existing db
+	// then create from a snapshot the existing db, and then nuke the old one once finished.
+
+	renamedSuffix := "-restore-" + RandomString(5)
+
+	// 1. Rename all db instances in the cluster
+	resp, err := provider.awssvc.DescribeDBClusters(&rds.DescribeDBClustersInput{
+		DBClusterIdentifier: 	aws.String(dbInstance.Name),
+		MaxRecords:           	aws.Int64(20),
+	})
+	if err != nil {
+		return err
+	}
+	if len(resp.DBClusters) != 1 {
+		return errors.New("Found none or multiples matching this cluster name.")
+	}
+	for _, member := range resp.DBClusters[0].DBClusterMembers {
+		_, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
+			ApplyImmediately: 			aws.Bool(true),
+			DBInstanceIdentifier: 		member.DBInstanceIdentifier, 
+			NewDBInstanceIdentifier: 	aws.String(*member.DBInstanceIdentifier + renamedSuffix),
+		})
+		if err != nil {
+			glog.Errorf("Unable to rename db cluster member: %s because %s\n", *member.DBInstanceIdentifier, err.Error())
+			return err
+		}
+	}
+
+	// 2. Rename the db cluster
+	_, err = provider.awssvc.ModifyDBCluster(&rds.ModifyDBClusterInput{
+			ApplyImmediately: 			aws.Bool(true),
+			DBClusterIdentifier: 		aws.String(dbInstance.Name), 
+			NewDBClusterIdentifier: 	aws.String(dbInstance.Name + renamedSuffix),
+	})
+	if err != nil {
+		glog.Errorf("Unable to rename db cluster because %s\n", err.Error())
+		return err
+	}
+
+	// 3. Wait for the db instance to be available before requesting a retore.
+	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: 	aws.String(dbInstance.Name + renamedSuffix),
+		MaxRecords:				aws.Int64(20),
+	})
+	if err != nil {
+		glog.Errorf("Unable to wait for renamed db cluster: %s\n", err.Error())
+		return err
+	}
+	t := time.NewTicker(time.Second * 15)
+	<-t.C
+
+	// 4. Restore the original db cluster
+	_, err = provider.awssvc.RestoreDBClusterFromSnapshot(&rds.RestoreDBClusterFromSnapshotInput{
+		DBClusterIdentifier:			aws.String(dbInstance.Name),
+		SnapshotIdentifier:				aws.String(Id),
+		DBSubnetGroupName:				settings.Cluster.DBSubnetGroupName,
+		Engine:							settings.Cluster.Engine,
+	})
+	if err != nil {
+		glog.Errorf("Unable to restore db cluster because %s\n", err.Error())
+		return err
+	}
+
+	// 5. Recreate the cluster members
+	for _, member := range resp.DBClusters[0].DBClusterMembers {
+		settings.Instance.DBInstanceIdentifier 	= member.DBInstanceIdentifier
+		settings.Instance.DBClusterIdentifier 	= aws.String(dbInstance.Name)
+		_, err = provider.awsInstanceProvider.ProvisionWithSettings(*member.DBInstanceIdentifier, dbInstance.Plan, &settings.Instance)
+		if err != nil {
+			glog.Errorf("Unable to create db cluster instance because %s\n", err.Error())
+			return err
+		}
+	}
+
+	// 6. Delete the members of the renamed cluster
+	var dbPrimaryIdentifier *string = nil
+	for _, member := range resp.DBClusters[0].DBClusterMembers {
+		if member.IsClusterWriter != nil && *member.IsClusterWriter == true {
+			tmpstr := *member.DBInstanceIdentifier + renamedSuffix
+			dbPrimaryIdentifier = &tmpstr
+		} else {
+			_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+				DBInstanceIdentifier:      aws.String(*member.DBInstanceIdentifier + renamedSuffix),
+				SkipFinalSnapshot:         aws.Bool(true),
+			})
+			if err != nil {
+				glog.Errorf("Unable to delete renamed db cluster member %s because %s\n", *member.DBInstanceIdentifier, err.Error())
+				return err
+			}
+		}
+	}
+	if dbPrimaryIdentifier == nil {
+		return errors.New("Unable to find primary database identifier")
+	}
+	_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:      dbPrimaryIdentifier,
+		SkipFinalSnapshot:         aws.Bool(true),
+	})
+	if err != nil {
+		glog.Errorf("Unable to delete db renamed primary member: %s because %s\n", *dbPrimaryIdentifier, err.Error())
+		return err
+	}
+	_, err = provider.awssvc.DeleteDBCluster(&rds.DeleteDBClusterInput{
+		DBClusterIdentifier:      	aws.String(dbInstance.Name + renamedSuffix),
+		SkipFinalSnapshot:			aws.Bool(true),
+	})
+	if err != nil {
+		fmt.Printf("Unable to clean up database cluster that should be removed after restoring (DeleteDBInstance): %s\n", dbInstance.Name + renamedSuffix)
+	}
+	return err
 }
 
 func (provider AWSClusteredProvider) Restart(dbInstance *DbInstance) error {

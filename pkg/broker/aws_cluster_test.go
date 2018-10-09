@@ -11,17 +11,15 @@ import (
 	_ "github.com/lib/pq"
 	"fmt"
 	"time"
-	"net/url"
 )
 
-func TestAwsProvision(t *testing.T) {
-	if os.Getenv("TEST_AWS_INSTANCE") == "" {
+func TestAwsClusterProvision(t *testing.T) {
+	if os.Getenv("TEST_AWS_CLUSTER") == "" {
 		return
 	}
 	var logic *BusinessLogic
 	var catalog *broker.CatalogResponse
 	var plan osb.Plan
-	var dbUrl string
 	var instanceId string = RandomString(12)
 	var err error
 	Convey("Given a fresh provisioner.", t, func() {
@@ -36,12 +34,12 @@ func TestAwsProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 2)
-			//service = catalog.Services[0]
-			plan = catalog.Services[0].Plans[2]
+			plan = catalog.Services[1].Plans[0]
 			So(plan.Name, ShouldEqual, "premium-0")
+			So(plan.ID, ShouldEqual, "bb660450-61d3-1c13-a3fd-d37999793222")
 		})
 
-		Convey("Ensure provisioner for aws instances works", func() {
+		Convey("Ensure provisioner for aws clusters works", func() {
 			var request osb.ProvisionRequest
 			var c broker.RequestContext
 			request.AcceptsIncomplete = false
@@ -62,6 +60,7 @@ func TestAwsProvision(t *testing.T) {
 			t := time.NewTicker(time.Second * 30)
 			for i := 0; i < 30; i++ {
 				dbInstance, err = logic.GetInstanceById(instanceId)
+				So(err, ShouldBeNil)
 				fmt.Printf(".")
 				if dbInstance.Ready == true && dbInstance.Status == "available" {
 					break;
@@ -86,14 +85,13 @@ func TestAwsProvision(t *testing.T) {
 			dres, err := logic.Bind(&brequest, &c)
 			So(err, ShouldBeNil)
 			So(dres, ShouldNotBeNil)
-			So(dres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
+			So(dres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "mysql://")
 
 			var gbrequest osb.GetBindingRequest = osb.GetBindingRequest{InstanceID: instanceId, BindingID: "foo"}
 			gbres, err := logic.GetBinding(&gbrequest, &c)
 			So(err, ShouldBeNil)
 			So(gbres, ShouldNotBeNil)
-			dbUrl = gbres.Credentials["DATABASE_URL"].(string)
-			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
+			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "mysql://")
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, dres.Credentials["DATABASE_URL"].(string))
 
 		})
@@ -101,9 +99,9 @@ func TestAwsProvision(t *testing.T) {
 		Convey("Ensure logging works for instance", func() {
 			var c broker.RequestContext
 			logsres, err := logic.ActionListLogs(instanceId, map[string]string{}, &c)
-			logs := logsres.([]DatabaseLogs)
 			So(err, ShouldBeNil)
-			So(logs, ShouldNotBeNil)
+			So(logsres, ShouldNotBeNil)
+			logs := logsres.([]DatabaseLogs)
 			So(len(logs), ShouldBeGreaterThan, 0)
 			So(logs[0].Name, ShouldNotBeNil)
 
@@ -117,7 +115,7 @@ func TestAwsProvision(t *testing.T) {
 
 		})
 
-		Convey("Ensure restarting aws instance works", func() {			
+		Convey("Ensure restarting aws cluster works", func() {			
 			var c broker.RequestContext
 			_, err = logic.ActionRestart(instanceId, map[string]string{}, &c)
 			So(err, ShouldBeNil)
@@ -138,59 +136,7 @@ func TestAwsProvision(t *testing.T) {
 			So(dbInstance.Ready, ShouldEqual, true)
 		})
 
-		Convey("Ensure creation of roles, rotating roles and removing roles successfully works.", func() {
-			So(dbUrl, ShouldNotEqual, "")
-			
-			var c broker.RequestContext
-			resp, err := logic.ActionCreateRole(instanceId, map[string]string{}, &c)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-			So(err, ShouldBeNil)
-			dbReadOnlySpec := resp.(DatabaseUrlSpec)
-			dbFullUrl, err := url.Parse(dbUrl)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-			So(err, ShouldBeNil)
-			So(dbFullUrl.User.Username(), ShouldNotEqual, dbReadOnlySpec.Username)
-			So(dbFullUrl.Host + dbFullUrl.Path, ShouldEqual, dbReadOnlySpec.Endpoint)
 
-			resps, err := logic.ActionListRoles(instanceId, map[string]string{}, &c)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-			So(err, ShouldBeNil)
-			roles := resps.([]DatabaseUrlSpec)
-			So(len(roles), ShouldEqual, 1)
-			So(roles[0].Username, ShouldEqual, dbReadOnlySpec.Username)
-
-			resprole, err := logic.ActionGetRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-			So(err, ShouldBeNil)
-			getrole := resprole.(DatabaseUrlSpec)
-			So(getrole.Username, ShouldEqual, dbReadOnlySpec.Username)
-
-			rotroleresp, err := logic.ActionRotateRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
-			if err != nil {
-				fmt.Println(err.Error())
-			}
-			rotrole := rotroleresp.(DatabaseUrlSpec)
-			So(err, ShouldBeNil)
-			So(rotrole.Username, ShouldEqual, dbReadOnlySpec.Username)
-			So(rotrole.Password, ShouldNotEqual, dbReadOnlySpec.Password)
-
-			_, err = logic.ActionDeleteRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
-			So(err, ShouldBeNil)
-			// TODO: ensure you cant login
-		})
-
-		// This should be near the end of the tests always,
-		// it causes a DNS change on the database for the IP so 
-		// there may be connect failures if you do the role tests
-		// after.
 		Convey("Ensure backup and restores work", func() {
 			var c broker.RequestContext
 			var dbInstance *DbInstance = nil
@@ -199,7 +145,7 @@ func TestAwsProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 
 			backups := backupsresp.([]DatabaseBackupSpec)
-			So(len(backups), ShouldBeGreaterThan, 0)
+			So(len(backups), ShouldEqual, 0)
 
 			backupresp, err := logic.ActionCreateBackup(instanceId, map[string]string{}, &c)
 			So(err, ShouldBeNil)
@@ -214,13 +160,12 @@ func TestAwsProvision(t *testing.T) {
 			t := time.NewTicker(time.Second * 30)
 			for i := 0; i < 30; i++ {
 				gbackupresp, err = logic.ActionGetBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
-				if gbackupresp != nil {
-					gbackup = gbackupresp.(DatabaseBackupSpec)
-					if gbackup.Status != nil && *gbackup.Status == "available" {
-						break;
-					}
-				}
+				So(err, ShouldBeNil)
+				gbackup = gbackupresp.(DatabaseBackupSpec)
 				fmt.Printf(".")
+				if gbackup.Status != nil && *gbackup.Status == "available" {
+					break;
+				}
 				<-t.C
 			}
 			
@@ -240,7 +185,7 @@ func TestAwsProvision(t *testing.T) {
 
 		})
 
-		Convey("Ensure unbind for aws instance works", func() {
+		Convey("Ensure unbind for aws cluster works", func() {
 			var c broker.RequestContext
 			var urequest osb.UnbindRequest = osb.UnbindRequest{InstanceID: instanceId, BindingID: "foo"}
 			ures, err := logic.Unbind(&urequest, &c)
@@ -248,7 +193,7 @@ func TestAwsProvision(t *testing.T) {
 			So(ures, ShouldNotBeNil)
 		})
 
-		Convey("Ensure deprovisioner for aws instance works", func() {
+		Convey("Ensure deprovisioner for aws cluster works", func() {
 			var request osb.LastOperationRequest = osb.LastOperationRequest{InstanceID: instanceId}
 			var c broker.RequestContext
 			res, err := logic.LastOperation(&request, &c)
@@ -256,21 +201,12 @@ func TestAwsProvision(t *testing.T) {
 			So(res, ShouldNotBeNil)
 			So(res.State, ShouldEqual, osb.StateSucceeded)
 
-			t := time.NewTicker(time.Second * 30)
-			for i := 0; i < 30; i++ {
-				dbInstance, err := logic.GetInstanceById(instanceId)
-				fmt.Printf(".")
-				if err == nil && dbInstance.Ready == true && dbInstance.Status == "available" {
-					break;
-				}
-				<-t.C
-			}
-
 			var drequest osb.DeprovisionRequest = osb.DeprovisionRequest{InstanceID: instanceId}
 			dres, err := logic.Deprovision(&drequest, &c)
 
 			So(err, ShouldBeNil)
 			So(dres, ShouldNotBeNil)
+
 		})
 	})
 }

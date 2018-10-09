@@ -80,9 +80,6 @@ func (b *BusinessLogic) ActionCreateReplica(InstanceID string, vars map[string]s
 	if err != nil {
 		return nil, NotFound()
 	}
-	if dbInstance.Engine != "postgres" {
-		return nil, ConflictErrorWithMessage("I do not know how to do this on anything other than postgres.")
-	}
 
 	b.Lock()
 	defer b.Unlock()
@@ -321,8 +318,7 @@ func (b *BusinessLogic) ActionRestart(InstanceID string, vars map[string]string,
 		glog.Errorf("Unable to restart db, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
 		return nil, InternalServerError()
 	}
-	err = provider.Restart(dbInstance)
-	if err != nil {
+	if err = provider.Restart(dbInstance); err != nil {
 		glog.Errorf("Unable to restart db, %s\n", err.Error())
 		return nil, InternalServerError()
 	}
@@ -339,9 +335,9 @@ func (b *BusinessLogic) ActionRestoreBackup(InstanceID string, vars map[string]s
 		glog.Errorf("Unable to restore backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
 		return nil, InternalServerError()
 	}
-	err = provider.RestoreBackup(dbInstance, vars["backup"])
-	if err != nil {
+	if err = provider.RestoreBackup(dbInstance, vars["backup"]); err != nil {
 		glog.Errorf("Unable to restore backup: %s\n", err.Error())
+		return nil, InternalServerError()
 	}
 	return map[string]interface{}{"status": "OK"}, nil
 }
@@ -677,9 +673,6 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 		glog.Errorf("Error finding instance id (during getbinding): %s\n", err.Error())
 		return nil, InternalServerError()
 	}
-	if request.BindResource == nil || request.BindResource.AppGUID == nil {
-		return nil, UnprocessableEntityWithMessage("RequiresApp", "The app_guid MUST be included in the request body.")
-	}
 	if dbInstance.Ready == false {
 		return nil, UnprocessableEntity()
 	}
@@ -690,13 +683,15 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 		return nil, InternalServerError()
 	}
 
-	if err = provider.Tag(dbInstance, "Binding", request.BindingID); err != nil {
-		glog.Errorf("Error tagging: %s with %s, got %s\n", request.InstanceID, *request.BindResource.AppGUID, err.Error())
-		return nil, InternalServerError()
-	}
-	if err = provider.Tag(dbInstance, "App", *request.BindResource.AppGUID); err != nil {
-		glog.Errorf("Error tagging: %s with %s, got %s\n", request.InstanceID, *request.BindResource.AppGUID, err.Error())
-		return nil, InternalServerError()
+	if request.BindResource != nil && request.BindResource.AppGUID != nil {
+		if err = provider.Tag(dbInstance, "Binding", request.BindingID); err != nil {
+			glog.Errorf("Error tagging: %s with %s, got %s\n", request.InstanceID, *request.BindResource.AppGUID, err.Error())
+			return nil, InternalServerError()
+		}
+		if err = provider.Tag(dbInstance, "App", *request.BindResource.AppGUID); err != nil {
+			glog.Errorf("Error tagging: %s with %s, got %s\n", request.InstanceID, *request.BindResource.AppGUID, err.Error())
+			return nil, InternalServerError()
+		}
 	}
 
 	dbUrl, err := b.storage.GetReplicas(dbInstance)

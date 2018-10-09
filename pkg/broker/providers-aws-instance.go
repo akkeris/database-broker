@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"fmt"
 )
 
 type AWSInstanceProvider struct {
@@ -89,11 +90,11 @@ func (provider AWSInstanceProvider) ProvisionWithSettings(Id string, plan *Provi
 
 	return &DbInstance{
 		Id:            Id,
-		Name:          *settings.DBName,
+		Name:          *resp.DBInstance.DBName,
 		ProviderId:    *resp.DBInstance.DBInstanceArn,
 		Plan:          plan,
 		Username:      *resp.DBInstance.MasterUsername,
-		Password:      *settings.MasterUserPassword,
+		Password:      "",
 		Endpoint:      endpoint,
 		Status:        *resp.DBInstance.DBInstanceStatus,
 		Ready:         IsReady(*resp.DBInstance.DBInstanceStatus),
@@ -117,7 +118,12 @@ func (provider AWSInstanceProvider) Provision(Id string, plan *ProviderPlan, Own
 	settings.Tags = []*rds.Tag{{Key: aws.String("BillingCode"), Value: aws.String(Owner)}}
 	settings.VpcSecurityGroupIds = []*string{aws.String(provider.awsVpcSecurityGroup)}
 
-	return provider.ProvisionWithSettings(Id, plan, &settings)
+	dbInstance, err := provider.ProvisionWithSettings(Id, plan, &settings)
+	if err != nil {
+		return nil, err
+	}
+	dbInstance.Password = *settings.MasterUserPassword
+	return dbInstance, nil
 }
 
 func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
@@ -296,10 +302,54 @@ func (provider AWSInstanceProvider) CreateBackup(dbInstance *DbInstance) (Databa
 }
 
 func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id string) error {
-	_, err := provider.awssvc.RestoreDBInstanceFromDBSnapshot(&rds.RestoreDBInstanceFromDBSnapshotInput{
-		DBInstanceIdentifier: aws.String(dbInstance.Name),
-		DBSnapshotIdentifier: aws.String(Id),
+	var settings rds.CreateDBInstanceInput
+	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &settings); err != nil {
+		return err
+	}
+
+	// For AWS, the best strategy for restoring (reliably) a database is to rename the existing db
+	// then create from a snapshot the existing db, and then nuke the old one once finished.
+
+	renamedId := dbInstance.Name + "-restore-" + RandomString(5)
+
+	_, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
+			ApplyImmediately: 			aws.Bool(true),
+			DBInstanceIdentifier: 		aws.String(dbInstance.Name), 
+			NewDBInstanceIdentifier: 	aws.String(renamedId),
 	})
+	if err != nil {
+		return err
+	}
+
+	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: 	aws.String(renamedId),
+		MaxRecords:				aws.Int64(20),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = provider.awssvc.RestoreDBInstanceFromDBSnapshot(&rds.RestoreDBInstanceFromDBSnapshotInput{
+		DBInstanceIdentifier:			aws.String(dbInstance.Name),
+		DBSnapshotIdentifier:			aws.String(Id),
+		DBSubnetGroupName:				settings.DBSubnetGroupName,
+	})
+
+	go (func() {
+		err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+			DBInstanceIdentifier: 	aws.String(dbInstance.Name),
+			MaxRecords:				aws.Int64(20),
+		})
+		if err != nil {
+			fmt.Printf("Unable to clean up database that should be removed after restoring (WaitUntilDBInstanceAvailable): %s\n", renamedId)
+		}
+		_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier:      aws.String(renamedId),
+			SkipFinalSnapshot:         aws.Bool(false),
+		})
+		if err != nil {
+			fmt.Printf("Unable to clean up database that should be removed after restoring (DeleteDBInstance): %s\n", renamedId)
+		}
+	})()
 	return err
 }
 

@@ -208,7 +208,7 @@ func (b *ActionBase) ActionSchemaHandler(w http.ResponseWriter, r *http.Request)
 
 func (b *ActionBase) RouteActions(router *mux.Router) error {
 	for _, action := range b.actions {
-		router.HandleFunc("/v2/service_instances/{instance_id}/actions/"+action.path, func(w http.ResponseWriter, r *http.Request) {
+		router.HandleFunc("/v2/service_instances/{instance_id}/actions/" + action.path, func(w http.ResponseWriter, r *http.Request) {
 			vars := mux.Vars(r)
 			c := broker.RequestContext{Request: r, Writer: w}
 			obj, herr := action.handler(vars["instance_id"], vars, &c)
