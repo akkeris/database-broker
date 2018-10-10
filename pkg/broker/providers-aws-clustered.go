@@ -67,12 +67,19 @@ func (provider AWSClusteredProvider) Provision(Id string, plan *ProviderPlan, Ow
 	settings.Instance.DBClusterIdentifier = settings.Cluster.DatabaseName
 
 	_, err := provider.awssvc.CreateDBCluster(&settings.Cluster)
-
 	if err != nil {
 		return nil, err
 	}
 
-	return provider.awsInstanceProvider.ProvisionWithSettings(Id, plan, &settings.Instance)
+	dbInstance, err := provider.awsInstanceProvider.ProvisionWithSettings(Id, plan, &settings.Instance)
+	if err != nil {
+		return nil, err
+	}
+	if settings.Cluster.MasterUserPassword == nil {
+		return nil, errors.New("Unable to obtain the master password for this cluster, it was nil.")
+	}
+	dbInstance.Password = *settings.Cluster.MasterUserPassword
+	return dbInstance, nil
 }
 
 func (provider AWSClusteredProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
@@ -259,6 +266,13 @@ func (provider AWSClusteredProvider) RestoreBackup(dbInstance *DbInstance, Id st
 	if len(resp.DBClusters) != 1 {
 		return errors.New("Found none or multiples matching this cluster name.")
 	}
+
+
+	var vpcSecurityGroupIds []*string = make([]*string, 0)
+	for _, group := range resp.DBClusters[0].VpcSecurityGroups {
+		vpcSecurityGroupIds = append(vpcSecurityGroupIds, group.VpcSecurityGroupId)
+	}
+
 	for _, member := range resp.DBClusters[0].DBClusterMembers {
 		_, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
 			ApplyImmediately: 			aws.Bool(true),
@@ -300,6 +314,7 @@ func (provider AWSClusteredProvider) RestoreBackup(dbInstance *DbInstance, Id st
 		SnapshotIdentifier:				aws.String(Id),
 		DBSubnetGroupName:				settings.Cluster.DBSubnetGroupName,
 		Engine:							settings.Cluster.Engine,
+		VpcSecurityGroupIds:			vpcSecurityGroupIds,
 	})
 	if err != nil {
 		glog.Errorf("Unable to restore db cluster because %s\n", err.Error())

@@ -36,8 +36,8 @@ func NewBusinessLogic(ctx context.Context, o Options) (*BusinessLogic, error) {
 	bl.AddActions("rotate_role", "roles/{role}", "PUT", bl.ActionRotateRole)
 	bl.AddActions("delete_role", "roles/{role}", "DELETE", bl.ActionDeleteRole)
 
-	bl.AddActions("list_logs", "logs", "GET", bl.ActionGetLogs)
-	bl.AddActions("get_logs", "logs/{dir}/{file}", "GET", bl.ActionListLogs)
+	bl.AddActions("list_logs", "logs", "GET", bl.ActionListLogs)
+	bl.AddActions("get_logs", "logs/{dir}/{file}", "GET", bl.ActionGetLogs)
 
 	bl.AddActions("restart", "restart", "PUT", bl.ActionRestart)
 
@@ -448,8 +448,6 @@ func (b *BusinessLogic) GetUnclaimedInstance(PlanId string, InstanceId string) (
 // A peice of advice, never try to make this syncronous by waiting for a to return a response. The problem is
 // that can take up to 10 minutes in my experience (depending on the provider), and aside from the API call timing
 // out the other issue is it can cause the mutex lock to make the entire API unresponsive.
-// TODO: Clustered instances must be provisioned differently
-// TODO: Support the concept of callbacks once a provision has happened?
 func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.RequestContext) (*broker.ProvisionResponse, error) {
 	b.Lock()
 	defer b.Unlock()
@@ -648,7 +646,7 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 	if err != nil && err.Error() == "Cannot find database instance" {
 		return nil, NotFound()
 	} else if err != nil {
-		glog.Errorf("Unable to get RDS (%s) status: %s\n", request.InstanceID, err.Error())
+		glog.Errorf("Unable to get database (%s) status: %s\n", request.InstanceID, err.Error()) 
 		return nil, InternalServerError()
 	}
 	b.storage.UpdateInstance(dbInstance, dbInstance.Plan.ID)

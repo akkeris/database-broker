@@ -277,6 +277,9 @@ func (provider AWSInstanceProvider) ListBackups(dbInstance *DbInstance) ([]Datab
 }
 
 func (provider AWSInstanceProvider) CreateBackup(dbInstance *DbInstance) (DatabaseBackupSpec, error) {
+	if !dbInstance.Ready {
+		return DatabaseBackupSpec{}, errors.New("Cannot create read only user on database that is unavailable.")
+	}
 	snapshot_name := (dbInstance.Name + "-manual-" + RandomString(10))
 	snapshot, err := provider.awssvc.CreateDBSnapshot(&rds.CreateDBSnapshotInput{
 		DBInstanceIdentifier: aws.String(dbInstance.Name),
@@ -307,12 +310,30 @@ func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id str
 		return err
 	}
 
+	if !dbInstance.Ready {
+		return errors.New("Cannot restore backup on database that is unavailable.")
+	}
+
 	// For AWS, the best strategy for restoring (reliably) a database is to rename the existing db
 	// then create from a snapshot the existing db, and then nuke the old one once finished.
+	awsDbResp, err := provider.awssvc.DescribeDBInstances(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		MaxRecords:           aws.Int64(20),
+	})
+	if err != nil {
+		return err
+	}
+	if len(awsDbResp.DBInstances) != 1 {
+		return errors.New("Unable to find database to rebuild as none or multiple were returned")
+	}
+	var dbSecurityGroups []*string = make([]*string, 0)
+	for _, group := range awsDbResp.DBInstances[0].VpcSecurityGroups {
+		dbSecurityGroups = append(dbSecurityGroups, group.VpcSecurityGroupId)
+	}
 
 	renamedId := dbInstance.Name + "-restore-" + RandomString(5)
 
-	_, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
+	_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
 			ApplyImmediately: 			aws.Bool(true),
 			DBInstanceIdentifier: 		aws.String(dbInstance.Name), 
 			NewDBInstanceIdentifier: 	aws.String(renamedId),
@@ -334,20 +355,41 @@ func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id str
 		DBSubnetGroupName:				settings.DBSubnetGroupName,
 	})
 
+	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: 	aws.String(dbInstance.Name),
+		MaxRecords:				aws.Int64(20),
+	})
+	if err != nil {
+		return err
+	}
+
+	// The restored instance does not have the same security groups, nor is there a way 
+	// of specifying the security groups when restoring the database on the previous call, 
+	// so we have to modify the newly created restore.
+	_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
+		ApplyImmediately: 			aws.Bool(true),
+		DBInstanceIdentifier: 		aws.String(dbInstance.Name), 
+		VpcSecurityGroupIds:		dbSecurityGroups,
+		DBParameterGroupName:		settings.DBParameterGroupName,
+	})
+	if err != nil {
+		return err
+	}
+
 	go (func() {
 		err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
 			DBInstanceIdentifier: 	aws.String(dbInstance.Name),
 			MaxRecords:				aws.Int64(20),
 		})
 		if err != nil {
-			fmt.Printf("Unable to clean up database that should be removed after restoring (WaitUntilDBInstanceAvailable): %s\n", renamedId)
+			fmt.Printf("Unable to clean up database that should be removed after restoring (WaitUntilDBInstanceAvailable): %s %s\n", renamedId, err.Error())
 		}
 		_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
 			DBInstanceIdentifier:      aws.String(renamedId),
-			SkipFinalSnapshot:         aws.Bool(false),
+			SkipFinalSnapshot:         aws.Bool(true),
 		})
 		if err != nil {
-			fmt.Printf("Unable to clean up database that should be removed after restoring (DeleteDBInstance): %s\n", renamedId)
+			fmt.Printf("Unable to clean up database that should be removed after restoring (DeleteDBInstance): %s %s\n", renamedId, err.Error())
 		}
 	})()
 	return err
@@ -355,6 +397,9 @@ func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id str
 
 func (provider AWSInstanceProvider) Restart(dbInstance *DbInstance) error {
 	// What about replica?
+	if !dbInstance.Ready {
+		return errors.New("Cannot restart a database that is unavailable.")
+	}
 	_, err := provider.awssvc.RebootDBInstance(&rds.RebootDBInstanceInput{
 		DBInstanceIdentifier: aws.String(dbInstance.Name),
 	})
@@ -482,13 +527,22 @@ func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) er
 }
 
 func (provider AWSInstanceProvider) CreateReadOnlyUser(dbInstance *DbInstance) (DatabaseUrlSpec, error) {
+	if !dbInstance.Ready {
+		return DatabaseUrlSpec{}, errors.New("Cannot create user on database that is unavailable.")
+	}
 	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint)
 }
 
 func (provider AWSInstanceProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
+	if !dbInstance.Ready {
+		return errors.New("Cannot delete user on database that is unavailable.")
+	}
 	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint, role)
 }
 
 func (provider AWSInstanceProvider) RotatePasswordReadOnlyUser(dbInstance *DbInstance, role string) (DatabaseUrlSpec, error) {
+	if !dbInstance.Ready {
+		return DatabaseUrlSpec{}, errors.New("Cannot rotate password on database that is unavailable.")
+	}
 	return RotatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint, role)
 }
