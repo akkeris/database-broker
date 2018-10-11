@@ -23,9 +23,6 @@ spec:
       name: database-broker-api
     spec:
       containers:
-      - args: 
-        - -logtostderr=1 
-        - -stderrthreshold 0
       - env:
         - name: AWS_REGION
           valueFrom:
@@ -101,9 +98,7 @@ spec:
       name: database-broker-worker
     spec:
       containers:
-      - args: 
-        - -logtostderr=1 
-        - -stderrthreshold 0
+      - args:
         - -background-tasks
       - env:
         - name: AWS_REGION
