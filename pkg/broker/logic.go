@@ -764,7 +764,7 @@ func (b *BusinessLogic) ValidateBrokerAPIVersion(version string) error {
 
 func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *broker.RequestContext) (*osb.GetBindingResponse, error) {
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
-	if err != nil && InProgress(dbInstance.Status) {
+	if err == nil && InProgress(dbInstance.Status) {
 		return nil, errors.New("service not yet available")
 	}
 	if err != nil && err.Error() == "Cannot find database instance" {
