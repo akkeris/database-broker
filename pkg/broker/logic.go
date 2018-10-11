@@ -6,7 +6,6 @@ import (
 	"github.com/golang/glog"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/pmorie/osb-broker-lib/pkg/broker"
-	"errors"
 )
 
 type BusinessLogic struct {
@@ -765,7 +764,7 @@ func (b *BusinessLogic) ValidateBrokerAPIVersion(version string) error {
 func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *broker.RequestContext) (*osb.GetBindingResponse, error) {
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
 	if err == nil && InProgress(dbInstance.Status) {
-		return nil, errors.New("service not yet available")
+		return nil, UnprocessableEntityWithMessage("ServiceNotYetAvailable", "The service requested is not yet available.")
 	}
 	if err != nil && err.Error() == "Cannot find database instance" {
 		return nil, NotFound()
