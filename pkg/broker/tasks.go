@@ -7,9 +7,12 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"github.com/golang/glog"
 	"net/http"
 	"os"
+	"os/exec"
+	"strings"
 	"time"
 )
 
@@ -21,6 +24,7 @@ const (
 	ResyncFromProviderUntilAvailableTask TaskAction = "resync-until-available"
 	NotifyCreateServiceWebhookTask       TaskAction = "notify-create-service-webhook"
 	NotifyCreateBindingWebhookTask       TaskAction = "notify-create-binding-webhook"
+	ChangeProvidersTask					 TaskAction = "change-providers"
 )
 
 type Task struct {
@@ -38,6 +42,10 @@ type Task struct {
 type WebhookTaskMetadata struct {
 	Url    string `json:"url"`
 	Secret string `json:"secret"`
+}
+
+type ChangeProvidersTaskMetadata struct {
+	Plan string `json:"plan"`
 }
 
 func FinishedTask(storage Storage, taskId string, retries int64, result string, status string) {
@@ -113,6 +121,90 @@ func TickTocPreprovisionTasks(ctx context.Context, o Options, namePrefix string,
 		RunPreprovisionTasks(ctx, o, namePrefix, storage, 60)
 		<-next_check.C
 	}
+}
+
+func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string, namePrefix string) (string, error) {
+	toPlan, err := storage.GetPlanByID(toPlanId)
+	if err != nil {
+		return "", err
+	}
+	toProvider, err := GetProviderByPlan(namePrefix, toPlan)
+	if err != nil {
+		return "", err
+	}
+	fromProvider, err := GetProviderByPlan(namePrefix, fromDb.Plan)
+	if err != nil {
+		return "", err
+	}
+	if toPlanId == fromDb.Plan.ID {
+		return "", errors.New("Cannot upgrade to the same plan")
+	}
+	if toPlan.Provider == fromDb.Plan.Provider {
+		return "", errors.New("Unable to upgrade, the same provider was passed in on both plans")
+	}
+	if fromDb.Engine != "postgres" {
+		return "", errors.New("Can only upgrade across providers on postgres")
+	}
+
+	origToDb, err := toProvider.Provision(fromDb.Id, toPlan, "")
+	if err != nil {
+		return "", err
+	}
+
+	var toDb *DbInstance = nil
+	t := time.NewTicker(time.Second * 30)
+	for i:=0; i < 30; i++ {
+		toDb, err = toProvider.GetInstance(origToDb.Name, origToDb.Plan)
+		if err != nil {
+			glog.Errorf("Unable to get instance of db %s because %s\n", origToDb.Name, err.Error())
+			if err = toProvider.Deprovision(origToDb, false); err != nil {
+				glog.Errorf("Unable to clean up after error, orphaned %s database! %s\n", origToDb.Name, err.Error())
+			}
+			return "", errors.New("The database instance could not be obtained.")
+		}
+		if i == 29 {
+			if err = toProvider.Deprovision(origToDb, false); err != nil {
+				glog.Errorf("Unable to clean up after error, orphaned %s database! %s\n", origToDb.Name, err.Error())
+			}
+			return "", errors.New("The database provisioning never finished.")
+		}
+		if toDb.Status == "available" {
+			break;
+		}
+		<-t.C
+	}
+	if toDb == nil {
+		return "", errors.New("The database provisioning never finished, toDb was nil.")
+	}
+
+	toDb.Id = fromDb.Id
+	toDb.Username = origToDb.Username
+	toDb.Password = origToDb.Password
+
+	v := strings.Split(fromDb.Endpoint, ":")
+	var extras = " "
+
+	if len(v) == 2 {
+		u := strings.Split(v[1], "/")
+		extras = extras + "-p " + u[0]
+	}
+	targetUrl := toDb.Scheme + "://" + toDb.Username + ":" + toDb.Password + "@" + toDb.Endpoint
+
+	cmd := exec.Command("sh", "-c", "PGPASSWORD=\"" + fromDb.Password + "\" pg_dump -xOc -d " + fromDb.Name + " -h " + v[0] + extras + " -U " + fromDb.Username + " | psql " + targetUrl)
+	var out bytes.Buffer
+	cmd.Stderr = &out
+	if err = cmd.Run(); err != nil {
+		return "", err
+	}
+
+	glog.Infof("Recording %#+v\n", toDb)
+	storage.UpdateInstance(toDb, toDb.Plan.ID)
+
+	if err = fromProvider.Deprovision(fromDb, true); err != nil {
+		glog.Errorf("Cannot deprovision existing database during provider change! Orphaned database! %s %s\n", fromDb.Name, err.Error())
+	}
+
+	return out.String(), nil
 }
 
 func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage Storage) error {
@@ -282,6 +374,34 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 					FinishedTask(storage, task.Id, task.Retries, resp.Status, "finished")
 				}
 			}
+		} else if task.Action == ChangeProvidersTask {
+			glog.Infof("Changing providers for database: %s\n", task.Id)
+			if task.Retries >= 60 {
+				glog.Infof("Retry limit was reached for task: %s %d\n", task.Id, task.Retries)
+				FinishedTask(storage, task.Id, task.Retries, "Unable to resync information from provider for database "+task.DatabaseId+" as it failed multiple times ("+task.Result+")", "failed")
+				continue
+			}
+			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
+			if err != nil {
+				glog.Infof("Failed to get provider instance for task: %s, %s\n", task.Id, err.Error())
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
+				continue
+			}
+			var taskMetaData ChangeProvidersTaskMetadata
+			err = json.Unmarshal([]byte(task.Metadata), &taskMetaData)
+			if err != nil {
+				glog.Infof("Cannot unmarshal task metadata to change providers: %s, %s\n", task.Id, err.Error())
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot unmarshal task metadata to change providers: "+err.Error(), "pending")
+				continue
+			}
+			output, err := UpgradeAcrossProviders(storage, dbInstance, taskMetaData.Plan, namePrefix)
+			if err != nil {
+				glog.Infof("Cannot switch providers: %s, %s\n", task.Id, err.Error())
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot switch providers: "+err.Error(), "pending")
+				continue
+			}
+
+			FinishedTask(storage, task.Id, task.Retries, output, "finished")
 		}
 		// TODO: create binding NotifyCreateBindingWebhookTask
 

@@ -84,7 +84,7 @@ begin
     end if;
 
     if not exists (select 1 from pg_type where typname = 'task_action') then
-        create type task_action as enum('delete', 'resync-from-provider', 'notify-create-service-webhook', 'notify-create-binding-webhook', 'resync-until-available');
+        create type task_action as enum('delete', 'resync-from-provider', 'notify-create-service-webhook', 'notify-create-binding-webhook', 'resync-until-available', 'change-providers');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'task_status') then
@@ -223,7 +223,7 @@ begin
             (service, name, human_name, description, categories, image, beta, deprecated)
         values 
             ('01bb60d2-f2bb-64c0-4c8b-ead731a690bc','akkeris-postgresql',   'Akkeris PostgreSQL',   'Dedicated and scalable PostgreSQL relational SQL database.',       'Data Stores,postgres', 'https://upload.wikimedia.org/wikipedia/commons/thumb/2/29/Postgresql_elephant.svg/1200px-Postgresql_elephant.svg.png', false, false),
-            ('11bb60d2-f2bb-64c0-4c8b-ead731a690bd','akkeris-mysql',        'Akkeris MySQL',        'Dedicated and scalable MySQL (aurora) relational SQL database.',   'Data Stores,postgres', 'https://upload.wikimedia.org/wikipedia/en/thumb/6/62/MySQL.svg/1280px-MySQL.svg.png', false, false);
+            ('11bb60d2-f2bb-64c0-4c8b-ead731a690bd','akkeris-mysql',        'Akkeris MySQL',        'Dedicated and scalable MySQL (aurora) relational SQL database.',   'Data Stores,mysql',    'https://upload.wikimedia.org/wikipedia/en/thumb/6/62/MySQL.svg/1280px-MySQL.svg.png', false, false);
     end if;
 
     -- populate some default plans (aws postgres)

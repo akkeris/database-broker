@@ -151,7 +151,6 @@ func (provider AWSClusteredProvider) Modify(dbInstance *DbInstance, plan *Provid
 		PreferredBackupWindow:		settings.Cluster.PreferredBackupWindow,
 		PreferredMaintenanceWindow: settings.Cluster.PreferredMaintenanceWindow,
 		ScalingConfiguration:		settings.Cluster.ScalingConfiguration,
-		VpcSecurityGroupIds:		[]*string{aws.String(provider.awsVpcSecurityGroup)},
 	})
 	if err != nil {
 		return nil, err

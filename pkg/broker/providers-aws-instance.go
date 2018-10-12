@@ -153,7 +153,6 @@ func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, p
 		CopyTagsToSnapshot:      settings.CopyTagsToSnapshot,
 		BackupRetentionPeriod:   settings.BackupRetentionPeriod,
 		DBParameterGroupName:    settings.DBParameterGroupName,
-		DBSubnetGroupName:       settings.DBSubnetGroupName,
 		StorageType:             settings.StorageType,
 		Iops:                    settings.Iops,
 	})
@@ -194,6 +193,18 @@ func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *Provide
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
 		return nil, err
 	}
+
+	var oldSettings rds.CreateDBInstanceInput 
+	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &oldSettings); err != nil {
+		return nil, err
+	}
+
+	if oldSettings.AllocatedStorage != nil && settings.AllocatedStorage != nil {
+		if *oldSettings.AllocatedStorage > *settings.AllocatedStorage {
+			settings.AllocatedStorage = oldSettings.AllocatedStorage
+		}
+	}
+
 	return provider.ModifyWithSettings(dbInstance, plan, &settings)
 }
 

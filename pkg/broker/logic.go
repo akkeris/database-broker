@@ -55,9 +55,6 @@ func (b *BusinessLogic) GetCatalog(c *broker.RequestContext) (*broker.CatalogRes
 		return nil, err
 	}
 	osbResponse := &osb.CatalogResponse{Services: services}
-
-	glog.Infof("catalog response: %#+v", osbResponse)
-
 	response.CatalogResponse = *osbResponse
 	return response, nil
 }
@@ -605,12 +602,25 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 
 	target_plan, err := b.storage.GetPlanByID(*request.PlanID)
 	if err != nil {
-		glog.Errorf("Unable to provision RDS (GetPlanByID failed): %s\n", err.Error())
+		glog.Errorf("Unable to provision database (GetPlanByID failed): %s\n", err.Error())
 		return nil, err
 	}
 
-	if dbInstance.Plan.Provider != target_plan.Provider {
-		return nil, UnprocessableEntityWithMessage("UpgradeError", "Upgrading a database must have the same provider.")
+	// If the user has requested to upgrade across providers
+	if dbInstance.Plan.Provider != target_plan.Provider && dbInstance.Engine == "postgres" {
+		byteData, err := json.Marshal(ChangeProvidersTaskMetadata{Plan:*request.PlanID})
+		if err != nil {
+			glog.Errorf("Unable to marshal change provider task meta data: %s\n", err.Error())
+			return nil, err
+		}
+		if _, err = b.storage.AddTask(dbInstance.Id, ChangeProvidersTask, string(byteData)); err != nil {
+			glog.Errorf("Error: Unable to schedule upgrade across providers! (%s): %s\n", dbInstance.Name, err.Error())
+			return nil, err
+		}
+		response.Async = true
+		return &response, nil
+	} else if dbInstance.Plan.Provider != target_plan.Provider && dbInstance.Engine != "postgres" {
+		return nil, UnprocessableEntityWithMessage("UpgradeError", "Cannot upgrade across providers for non-postgres databases.")
 	}
 
 	provider, err := GetProviderByPlan(b.namePrefix, target_plan)
