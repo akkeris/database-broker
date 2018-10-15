@@ -50,6 +50,11 @@ Note that you can get away with not setting `AWS_ACCESS_KEY_ID` and `AWS_SECRET_
 
 There are no environment variables for shared postgres providers, although sensitive configuration can be set in the enivornment, see plans for more information. 
 
+**Google Cloud Specific**
+
+* `GOOGLE_JSON_TOKEN` - The JSON string that has the project id, token from oauth2 as the value.
+
+
 **Optional**
 
 * `PORT` - This defaults to 8443, setting this changes the default port number to listen to http (or https) traffic on

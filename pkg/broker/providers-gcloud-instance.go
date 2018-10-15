@@ -29,13 +29,29 @@ func NewGCloudInstanceProvider(namePrefix string) (*GCloudInstanceProvider, erro
 		return nil, errors.New("Unable to find REGION environment variable.")
 	}
 	
-	ctx := context.Background() 
-	c, err := google.DefaultClient(ctx, sqladmin.CloudPlatformScope)
+	ctx := context.Background()
+
+	//var credentials *google.Credentials = nil
+	//var err error = nil
+	//if os.Getenv("GOOGLE_JSON_TOKEN") != "" {
+		//credentials, err = google.CredentialsFromJSON(ctx, []byte(os.Getenv("GOOGLE_JSON_TOKEN")), sqladmin.SqlserviceAdminScope)
+	//} else {
+		//credentials, err := google.DefaultClient(ctx, sqladmin.SqlserviceAdminScope)
+		//if err != nil {
+			//credentials, err = google.FindDefaultCredentials(ctx, sqladmin.SqlserviceAdminScope)
+			//if err != nil {
+				//return nil, err
+			//}
+		//}
+	//}
+	credentials, err := google.DefaultClient(ctx, sqladmin.SqlserviceAdminScope)
 	if err != nil {
 		return nil, err
 	}
-
-	svc, err := sqladmin.New(c)
+	svc, err := sqladmin.New(credentials)
+	if err != nil {
+		return nil, err
+	}
 
 	t := time.NewTicker(time.Second * 30)
 	GCloudInstanceProvider := &GCloudInstanceProvider{
@@ -61,14 +77,17 @@ func (provider GCloudInstanceProvider) GetInstance(name string, plan *ProviderPl
 	}
 	
 	svc := sqladmin.NewInstancesService(provider.svc)
-	resp, err := svc.Get(provider.projectId, name).Do()
-
 	
+	resp, err := svc.Get(provider.projectId, name).Do()
 	if err != nil {
 		return nil, err
 	}
 
-	var endpoint = ""
+	if len(resp.IpAddresses) == 0 {
+		return nil, errors.New("Unable to get instance ip address.")
+	}
+
+	var endpoint = resp.IpAddresses[0].IpAddress + "/" + resp.Name
 	// ConnectionName, IpAddresses[...].IpAddress ... resp.IpAddresses[0] + ":" + strconv.FormatInt(*resp.DBInstances[0].Endpoint.Port, 10) + "/" + name
 
 	var dbEngine = "postgres"
@@ -162,6 +181,9 @@ func (provider GCloudInstanceProvider) Provision(Id string, plan *ProviderPlan, 
 }
 
 func (provider GCloudInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
+
+
+
 	/*provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
 		SkipFinalSnapshot:    aws.Bool(!takeSnapshot),
