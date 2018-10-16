@@ -38,11 +38,11 @@ func TestProvision(t *testing.T) {
 			So(err, ShouldNotBeNil)
 
 
-			entry, err := storage.GetUnclaimedInstance("50660450-61d3-2c13-a3fd-d379997932fb", "my-new-test-instance")
+			entry, err := storage.GetUnclaimedInstance("50660450-61d3-2c13-a3fd-d379997932fa", "my-new-test-instance")
 			So(err, ShouldBeNil)
 
 			So(entry.Id, ShouldEqual, "my-new-test-instance")
-			So(entry.PlanId, ShouldEqual, "50660450-61d3-2c13-a3fd-d379997932fb")
+			So(entry.PlanId, ShouldEqual, "50660450-61d3-2c13-a3fd-d379997932fa")
 			So(entry.Claimed, ShouldEqual, true)
 			So(entry.Status, ShouldEqual, "available")
 

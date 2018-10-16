@@ -36,7 +36,7 @@ func TestAwsClusterProvision(t *testing.T) {
 			So(len(catalog.Services), ShouldEqual, 2)
 			plan = catalog.Services[1].Plans[0]
 			So(plan.Name, ShouldEqual, "premium-0")
-			So(plan.ID, ShouldEqual, "bb660450-61d3-1c13-a3fd-d37999793222")
+			So(plan.ID, ShouldEqual, "bb660450-61d3-1c13-a3fd-d3799979322a")
 		})
 
 		Convey("Ensure provisioner for aws clusters works", func() {
