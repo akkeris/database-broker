@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/golang/glog"
+	"time"
+	"sort"
+	"strings"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/pmorie/osb-broker-lib/pkg/broker"
 )
@@ -36,8 +39,7 @@ func NewBusinessLogic(ctx context.Context, o Options) (*BusinessLogic, error) {
 	bl.AddActions("rotate_role", "roles/{role}", "PUT", bl.ActionRotateRole)
 	bl.AddActions("delete_role", "roles/{role}", "DELETE", bl.ActionDeleteRole)
 
-	bl.AddActions("list_logs", "logs", "GET", bl.ActionListLogs)
-	bl.AddActions("get_logs", "logs/{dir}/{file}", "GET", bl.ActionGetLogs)
+	bl.AddActions("view_logs", "logs", "GET", bl.ActionViewLogs)
 
 	bl.AddActions("restart", "restart", "PUT", bl.ActionRestart)
 
@@ -303,6 +305,42 @@ func (b *BusinessLogic) ActionGetLogs(InstanceID string, vars map[string]string,
 		return nil, InternalServerError()
 	}
 	return logs, nil
+}
+
+type databaseLogsArray []DatabaseLogs
+
+func (v databaseLogsArray) Len() int           { return len(v) }
+func (v databaseLogsArray) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
+func (v databaseLogsArray) Less(i, j int) bool {
+	a, err := time.Parse(time.RFC3339, v[i].Updated)
+	if err != nil {
+		return false
+	}
+	b, err := time.Parse(time.RFC3339, v[j].Updated)
+	if err != nil {
+		return true
+	}
+	return a.After(b)
+}
+
+
+func (b *BusinessLogic) ActionViewLogs(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
+	logsInt, err := b.ActionListLogs(InstanceID, vars, context)
+	if err != nil {
+		return nil, err
+	}
+	logs := logsInt.([]DatabaseLogs)
+	sort.Sort(databaseLogsArray(logs))
+	if len(logs) == 0 {
+		return map[string]interface{}{"logs":""}, nil
+	}
+	logpath := strings.Split(*logs[0].Name, "/")
+	logsDataInt, err := b.ActionGetLogs(InstanceID, map[string]string{"dir":logpath[0], "file":logpath[1]}, context)
+	if err != nil {
+		return nil, err
+	}
+	logdata := logsDataInt.(string)
+	return map[string]interface{}{"logs":logdata}, nil
 }
 
 func (b *BusinessLogic) ActionRestart(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
