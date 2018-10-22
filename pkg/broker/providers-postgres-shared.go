@@ -105,17 +105,20 @@ func (provider PostgresSharedProvider) Provision(Id string, plan *ProviderPlan, 
 	}
 	defer udb.Close()
 
+	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS postgres_fdw WITH SCHEMA public"); err != nil {
+		return nil, errors.New("Cannot create extension postgres_fdw on new db: " + err.Error())
+	}
 	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA public"); err != nil {
-		return nil, errors.New("Cannot create extension on new db: " + err.Error())
+		return nil, errors.New("Cannot create extension pgcrypto on new db: " + err.Error())
 	}
 	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS tablefunc WITH SCHEMA public"); err != nil {
-		return nil, errors.New("Cannot create extension on new db: " + err.Error())
+		return nil, errors.New("Cannot create extension tablefunc on new db: " + err.Error())
 	}
 	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS hstore WITH SCHEMA public"); err != nil {
-		return nil, errors.New("Cannot create extension on new db: " + err.Error())
+		return nil, errors.New("Cannot create extension hstore on new db: " + err.Error())
 	}
 	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA public"); err != nil {
-		return nil, errors.New("Cannot create extension on new db: " + err.Error())
+		return nil, errors.New("Cannot create extension uuid-ossp on new db: " + err.Error())
 	}
 	return &DbInstance{
 		Id:            Id,
