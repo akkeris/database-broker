@@ -460,7 +460,7 @@ func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance
 	dbInstance.Plan = plan
 
 	if entry.Tasks > 0 {
-		dbInstance.Status = "modifying"
+		dbInstance.Status = "performing-tasks"
 		dbInstance.Ready = false
 	}
 	return dbInstance, nil
@@ -816,7 +816,7 @@ func (b *BusinessLogic) ValidateBrokerAPIVersion(version string) error {
 
 func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *broker.RequestContext) (*osb.GetBindingResponse, error) {
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
-	if err == nil && InProgress(dbInstance.Status) {
+	if err == nil && !IsReady(dbInstance.Status) {
 		return nil, UnprocessableEntityWithMessage("ServiceNotYetAvailable", "The service requested is not yet available.")
 	}
 	if err != nil && err.Error() == "Cannot find database instance" {
