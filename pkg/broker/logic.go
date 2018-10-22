@@ -458,6 +458,11 @@ func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance
 	dbInstance.Username = entry.Username
 	dbInstance.Password = entry.Password
 	dbInstance.Plan = plan
+
+	if entry.Tasks > 0 {
+		dbInstance.Status = "modifying"
+		dbInstance.Ready = false
+	}
 	return dbInstance, nil
 }
 

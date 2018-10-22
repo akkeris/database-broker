@@ -153,18 +153,24 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 
 	var toDb *DbInstance = nil
 	t := time.NewTicker(time.Second * 30)
-	for i:=0; i < 30; i++ {
+	for i:=0; i < 60; i++ {
 		toDb, err = toProvider.GetInstance(origToDb.Name, origToDb.Plan)
 		if err != nil {
 			glog.Errorf("Unable to get instance of db %s because %s\n", origToDb.Name, err.Error())
 			if err = toProvider.Deprovision(origToDb, false); err != nil {
-				glog.Errorf("Unable to clean up after error, orphaned %s database! %s\n", origToDb.Name, err.Error())
+				glog.Errorf("Unable to clean up after error, for %s database! %s\n", origToDb.Name, err.Error())
+				if _, err = storage.AddTask(origToDb.Id, DeleteTask, origToDb.Name); err != nil {
+					glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! (%s): %s\n", origToDb.Name, err.Error())
+				}
 			}
 			return "", errors.New("The database instance could not be obtained.")
 		}
-		if i == 29 {
+		if i == 59 {
 			if err = toProvider.Deprovision(origToDb, false); err != nil {
-				glog.Errorf("Unable to clean up after error, orphaned %s database! %s\n", origToDb.Name, err.Error())
+				glog.Errorf("Unable to clean up after error, for %s database! %s\n", origToDb.Name, err.Error())
+				if _, err = storage.AddTask(origToDb.Id, DeleteTask, origToDb.Name); err != nil {
+					glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! (%s): %s\n", origToDb.Name, err.Error())
+				}
 			}
 			return "", errors.New("The database provisioning never finished.")
 		}
@@ -197,11 +203,13 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 		return "", err
 	}
 
-	glog.Infof("Recording %#+v\n", toDb)
 	storage.UpdateInstance(toDb, toDb.Plan.ID)
 
 	if err = fromProvider.Deprovision(fromDb, true); err != nil {
-		glog.Errorf("Cannot deprovision existing database during provider change! Orphaned database! %s %s\n", fromDb.Name, err.Error())
+		glog.Errorf("Cannot deprovision existing database during provider change %s %s\n", fromDb.Name, err.Error())
+		if _, err = storage.AddTask(fromDb.Id, DeleteTask, fromDb.Name); err != nil {
+			glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! (%s): %s\n", fromDb.Name, err.Error())
+		}
 	}
 
 	return out.String(), nil

@@ -149,12 +149,11 @@ func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeS
 	}
 
 	defer db.Close()
-
+	if _, err = db.Exec("DROP DATABASE " + dbInstance.Name); err != nil {
+		return errors.New("Failed to drop database shared tenant: " + err.Error())
+	}
 	if _, err = db.Exec("REVOKE " + dbInstance.Username + " FROM CURRENT_USER"); err != nil {
 		return errors.New("Failed to revoke access from master user to shared tenant user: " + err.Error())
-	}
-	if _, err = db.Exec("DROP DATABASE " + dbInstance.Name); err != nil {
-		return errors.New("Failed to drop database nn shared tenant: " + err.Error())
 	}
 	if _, err = db.Exec("DROP USER " + dbInstance.Username); err != nil {
 		return errors.New("Failed to remove user: " + dbInstance.Username + " " + err.Error())

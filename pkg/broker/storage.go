@@ -669,7 +669,7 @@ func (b *PostgresStorage) StartProvisioningTasks() ([]DbEntry, error) {
 
 func (b *PostgresStorage) GetInstance(Id string) (*DbEntry, error) {
 	var entry DbEntry
-	err := b.db.QueryRow("select id, name, plan, claimed, status, username, password, endpoint from databases where id = $1 and deleted = false", Id).Scan(&entry.Id, &entry.Name, &entry.PlanId, &entry.Claimed, &entry.Status, &entry.Username, &entry.Password, &entry.Endpoint)
+	err := b.db.QueryRow("select id, name, plan, claimed, status, username, password, endpoint, (select count(*) from tasks where tasks.database=databases.id and tasks.status = 'started' and tasks.deleted = false) as tasks from databases where id = $1 and deleted = false", Id).Scan(&entry.Id, &entry.Name, &entry.PlanId, &entry.Claimed, &entry.Status, &entry.Username, &entry.Password, &entry.Endpoint, &entry.Tasks)
 
 	if err != nil && err.Error() == "sql: no rows in result set" {
 		return nil, errors.New("Cannot find database instance")

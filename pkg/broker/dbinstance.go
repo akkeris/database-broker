@@ -24,6 +24,7 @@ type DbEntry struct {
 	Name     string
 	PlanId   string
 	Claimed  bool
+	Tasks	 int
 	Status   string
 	Username string
 	Password string
