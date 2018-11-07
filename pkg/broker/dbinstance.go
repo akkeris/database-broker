@@ -65,7 +65,6 @@ func IsReady(status string) bool {
 		status == "configuring-enhanced-monitoring" ||
 		status == "storage-optimization" ||
 		status == "backing-up" ||
-		status == "performing-tasks" ||
 		// gcloud states
 		status == "RUNNABLE"
 }
@@ -75,14 +74,26 @@ func InProgress(status string) bool {
 		status == "rebooting" || status == "moving-to-vpc" ||
 		status == "renaming" || status == "upgrading" || status == "backtracking" ||
 		status == "maintenance" || status == "resetting-master-credentials" ||
-		status == "performing-tasks" ||
 		// gclouud states
 		status == "PENDING_CREATE" || status == "MAINTENANCE"
 
 }
 
-func CanBeDeleted(status string) bool {
+func CanGetBindings(status string) bool {
+	// Should we potentially add upgrading to this list?
+	return  status != "creating" && status != "starting" && 
+			status != "stopping" && status != "stopped" && status != "deleting"
+}
+
+func CanBeModified(status string) bool {
 	return status != "creating" && status != "starting" && status != "modifying" &&
+		status != "rebooting" && status != "moving-to-vpc" && status != "backing-up" &&
+		status != "renaming" && status != "upgrading" && status != "backtracking" &&
+		status != "maintenance" && status != "resetting-master-credentials"
+}
+
+func CanBeDeleted(status string) bool {
+	return status != "creating" && status != "starting" &&
 		status != "rebooting" && status != "moving-to-vpc" && status != "backing-up" &&
 		status != "renaming" && status != "upgrading" && status != "backtracking" &&
 		status != "maintenance" && status != "resetting-master-credentials"

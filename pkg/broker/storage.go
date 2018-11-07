@@ -84,7 +84,17 @@ begin
     end if;
 
     if not exists (select 1 from pg_type where typname = 'task_action') then
-        create type task_action as enum('delete', 'resync-from-provider', 'notify-create-service-webhook', 'notify-create-binding-webhook', 'resync-until-available', 'change-providers');
+        create type task_action as enum('delete', 'resync-from-provider', 'notify-create-service-webhook', 'notify-create-binding-webhook', 'resync-until-available', 'change-providers', 'change-plans', 'restore-database');
+    end if;
+
+    if not exists (select 1 from pg_enum join pg_type on pg_enum.enumtypid=pg_type.oid where pg_type.typname = 'task_action' and enumlabel = 'change-plans') then
+        INSERT INTO pg_enum (enumtypid, enumlabel, enumsortorder)
+            SELECT 'task_action'::regtype::oid, 'change-plans', ( SELECT MAX(enumsortorder) + 1 FROM pg_enum WHERE enumtypid = 'task_action'::regtype );
+    end if;
+
+    if not exists (select 1 from pg_enum join pg_type on pg_enum.enumtypid=pg_type.oid where pg_type.typname = 'task_action' and enumlabel = 'restore-database') then
+        INSERT INTO pg_enum (enumtypid, enumlabel, enumsortorder)
+            SELECT 'task_action'::regtype::oid, 'restore-database', ( SELECT MAX(enumsortorder) + 1 FROM pg_enum WHERE enumtypid = 'task_action'::regtype );
     end if;
 
     if not exists (select 1 from pg_type where typname = 'task_status') then

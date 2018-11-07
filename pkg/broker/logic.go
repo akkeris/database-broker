@@ -365,13 +365,13 @@ func (b *BusinessLogic) ActionRestoreBackup(InstanceID string, vars map[string]s
 	if err != nil {
 		return nil, NotFound()
 	}
-	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
+	byteData, err := json.Marshal(RestoreDbTaskMetadata{Backup:vars["backup"]})
 	if err != nil {
-		glog.Errorf("Unable to restore backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
+		glog.Errorf("Error: failed to marshal webhook task metadata: %s\n", err)
 		return nil, InternalServerError()
 	}
-	if err = provider.RestoreBackup(dbInstance, vars["backup"]); err != nil {
-		glog.Errorf("Unable to restore backup: %s\n", err.Error())
+	if _, err = b.storage.AddTask(dbInstance.Id, RestoreDbTask, string(byteData)); err != nil {
+		glog.Errorf("Error: Unable to schedule restore backup! (%s): %s\n", dbInstance.Name, err.Error())
 		return nil, InternalServerError()
 	}
 	return map[string]interface{}{"status": "OK"}, nil
@@ -381,6 +381,9 @@ func (b *BusinessLogic) ActionCreateBackup(InstanceID string, vars map[string]st
 	dbInstance, err := b.GetInstanceById(InstanceID)
 	if err != nil {
 		return nil, NotFound()
+	}
+	if(!CanBeModified(dbInstance.Status)) {
+		return nil, UnprocessableEntityWithMessage("ServiceNotYetAvailable", "A backup cannot be created while this service is under maintenance.")
 	}
 	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
 	if err != nil {
@@ -459,10 +462,6 @@ func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance
 	dbInstance.Password = entry.Password
 	dbInstance.Plan = plan
 
-	if entry.Tasks > 0 {
-		dbInstance.Status = "performing-tasks"
-		dbInstance.Ready = false
-	}
 	return dbInstance, nil
 }
 
@@ -664,33 +663,19 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 		return &response, nil
 	} else if dbInstance.Plan.Provider != target_plan.Provider && dbInstance.Engine != "postgres" {
 		return nil, UnprocessableEntityWithMessage("UpgradeError", "Cannot upgrade across providers for non-postgres databases.")
-	}
-
-	provider, err := GetProviderByPlan(b.namePrefix, target_plan)
-	if err != nil {
-		glog.Errorf("Unable to provision, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
-		return nil, UnprocessableEntityWithMessage("UpgradeError", "Invalid Provider")
-	}
-
-	newDbInstance, err := provider.Modify(dbInstance, target_plan)
-	if err != nil {
-		glog.Errorf("Error modifying the plan on database (%s): %s\n", dbInstance.Name, err.Error())
-		return nil, InternalServerError()
-	}
-
-	if err = b.storage.UpdateInstance(dbInstance, newDbInstance.Plan.ID); err != nil {
-		glog.Errorf("Error updating record in provisioned table to change plan (%s): %s\n", dbInstance.Name, err.Error())
-		return nil, InternalServerError()
-	}
-	if newDbInstance.Status != "available" {
-		if _, err = b.storage.AddTask(dbInstance.Id, ResyncFromProviderTask, ""); err != nil {
-			glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
+	} else {
+		byteData, err := json.Marshal(ChangePlansTaskMetadata{Plan:*request.PlanID})
+		if err != nil {
+			glog.Errorf("Unable to marshal change plans task meta data: %s\n", err.Error())
+			return nil, err
 		}
-	}
-	if request.AcceptsIncomplete {
+		if _, err = b.storage.AddTask(dbInstance.Id, ChangePlansTask, string(byteData)); err != nil {
+			glog.Errorf("Error: Unable to schedule upgrade of a plan! (%s): %s\n", dbInstance.Name, err.Error())
+			return nil, err
+		}
 		response.Async = true
+		return &response, nil
 	}
-	return &response, nil
 }
 
 func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *broker.RequestContext) (*broker.LastOperationResponse, error) {
@@ -816,7 +801,7 @@ func (b *BusinessLogic) ValidateBrokerAPIVersion(version string) error {
 
 func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *broker.RequestContext) (*osb.GetBindingResponse, error) {
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
-	if err == nil && !IsReady(dbInstance.Status) {
+	if err == nil && !CanGetBindings(dbInstance.Status) {
 		return nil, UnprocessableEntityWithMessage("ServiceNotYetAvailable", "The service requested is not yet available.")
 	}
 	if err != nil && err.Error() == "Cannot find database instance" {

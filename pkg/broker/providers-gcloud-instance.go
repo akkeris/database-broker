@@ -197,6 +197,9 @@ func (provider GCloudInstanceProvider) Deprovision(dbInstance *DbInstance, takeS
 	return errors.New("unimplemented")
 }
 
+func (provider GCloudInstanceProvider) UpgradeVersion(dbInstance *DbInstance, proposed string) (*DbInstance, error) {
+	return nil, errors.New("This feature is not available on this plan")
+}
 
 func (provider GCloudInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, plan *ProviderPlan, settings *sqladmin.DatabaseInstance, user *sqladmin.User) (*DbInstance, error) {
 	/*resp, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{

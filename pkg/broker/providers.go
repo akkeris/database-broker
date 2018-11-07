@@ -55,6 +55,7 @@ type Provider interface {
 	CreateReadReplica(*DbInstance) (*DbInstance, error)
 	GetReadReplica(*DbInstance) (*DbInstance, error)
 	DeleteReadReplica(*DbInstance) error
+	UpgradeVersion(dbInstance *DbInstance, proposed string) (*DbInstance, error)
 }
 
 func GetProviderByPlan(namePrefix string, plan *ProviderPlan) (Provider, error) {

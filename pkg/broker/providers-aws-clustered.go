@@ -130,9 +130,40 @@ func (provider AWSClusteredProvider) Deprovision(dbInstance *DbInstance, takeSna
 	return err
 }
 
+func (provider AWSClusteredProvider) UpgradeVersion(dbInstance *DbInstance, proposed string) (*DbInstance, error) {
+	versions, err := provider.awsInstanceProvider.upgradePlan(dbInstance, proposed)
+	if err != nil {
+		return nil, err
+	}
+
+	// Begin the upgrades.
+	for _, version := range versions {
+		_, err := provider.awssvc.ModifyDBCluster(&rds.ModifyDBClusterInput{
+			EngineVersion:           aws.String(version),
+			ApplyImmediately:        aws.Bool(true),
+			DBClusterIdentifier:     aws.String(dbInstance.Name),
+		})
+		if err != nil {
+			return nil, err
+		}
+		tick := time.NewTicker(time.Second * 30)
+		<-tick.C
+		err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+			DBInstanceIdentifier: 	aws.String(dbInstance.Name),
+			MaxRecords:				aws.Int64(20),
+		})
+		if err != nil {
+			return nil, err
+		}
+		dbInstance.EngineVersion = version
+		glog.Infof("Database: %s upgraded to %s %s\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion)
+	}
+	return dbInstance, nil
+}
+
 func (provider AWSClusteredProvider) Modify(dbInstance *DbInstance, plan *ProviderPlan) (*DbInstance, error) {
-	if dbInstance.Status != "available" {
-		return nil, errors.New("Replicas cannot be created for databases being created, under maintenance or destroyed.")
+	if !CanBeModified(dbInstance.Status) {
+		return nil, errors.New("Databases cannot be modifed during backups, upgrades or while maintenance is being performed.")
 	}
 	var settings AWSClusteredProviderPrivatePlanSettings
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
@@ -145,7 +176,6 @@ func (provider AWSClusteredProvider) Modify(dbInstance *DbInstance, plan *Provid
 		BackupRetentionPeriod:		settings.Cluster.BackupRetentionPeriod,
 		DBClusterIdentifier:		aws.String(dbInstance.Name),
 		DBClusterParameterGroupName:settings.Cluster.DBClusterParameterGroupName,
-		EngineVersion: 				settings.Cluster.EngineVersion,
 		OptionGroupName:			settings.Cluster.OptionGroupName,
 		Port:						settings.Cluster.Port,
 		PreferredBackupWindow:		settings.Cluster.PreferredBackupWindow,
