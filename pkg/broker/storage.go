@@ -83,20 +83,6 @@ begin
         create type costunit as enum('year', 'month', 'day', 'hour', 'minute', 'second', 'cycle', 'byte', 'megabyte', 'gigabyte', 'terabyte', 'petabyte', 'op', 'unit');
     end if;
 
-    if not exists (select 1 from pg_type where typname = 'task_action') then
-        create type task_action as enum('delete', 'resync-from-provider', 'notify-create-service-webhook', 'notify-create-binding-webhook', 'resync-until-available', 'change-providers', 'change-plans', 'restore-database');
-    end if;
-
-    if not exists (select 1 from pg_enum join pg_type on pg_enum.enumtypid=pg_type.oid where pg_type.typname = 'task_action' and enumlabel = 'change-plans') then
-        INSERT INTO pg_enum (enumtypid, enumlabel, enumsortorder)
-            SELECT 'task_action'::regtype::oid, 'change-plans', ( SELECT MAX(enumsortorder) + 1 FROM pg_enum WHERE enumtypid = 'task_action'::regtype );
-    end if;
-
-    if not exists (select 1 from pg_enum join pg_type on pg_enum.enumtypid=pg_type.oid where pg_type.typname = 'task_action' and enumlabel = 'restore-database') then
-        INSERT INTO pg_enum (enumtypid, enumlabel, enumsortorder)
-            SELECT 'task_action'::regtype::oid, 'restore-database', ( SELECT MAX(enumsortorder) + 1 FROM pg_enum WHERE enumtypid = 'task_action'::regtype );
-    end if;
-
     if not exists (select 1 from pg_type where typname = 'task_status') then
         create type task_status as enum('pending', 'started', 'finished', 'failed');
     end if;
@@ -212,7 +198,7 @@ begin
     (
         task uuid not null primary key,
         database varchar(1024) references databases("id") not null,
-        action task_action not null,
+        action varchar(1024) not null,
         status task_status not null default 'pending',
         retries int not null default 0,
         metadata text not null default '',
@@ -223,6 +209,15 @@ begin
         finished timestamp with time zone,
         deleted bool not null default false
     );
+    
+    if exists (SELECT NULL 
+              FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE table_name = 'tasks'
+              AND column_name = 'action'
+              and udt_name = 'task_action'
+              and table_schema = 'public') then
+        alter table tasks alter column action TYPE varchar(1024) using action::varchar(1024);
+    end if;
 
     drop trigger if exists tasks_updated on tasks;
     create trigger tasks_updated before update on tasks for each row execute procedure mark_updated_column();
