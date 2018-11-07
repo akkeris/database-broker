@@ -280,8 +280,27 @@ func CrudeOSBIHacks(router *mux.Router, b *BusinessLogic) {
 		c := broker.RequestContext{Request: r, Writer: w}
 		resp, err := b.GetBinding(&req, &c)
 		if err != nil {
-			HttpWrite(w, 500, map[string]string{"error":"InternalServerError", "description":"Internal Server Error"})
-			return
+			type e struct {
+				ErrorMessage *string `json:"error,omitempty"`
+				Description  *string `json:"description,omitempty"`
+			}
+			if httpErr, ok := osb.IsHTTPError(err); ok {
+				body := &e{}
+				if httpErr.Description != nil {
+					body.Description = httpErr.Description
+				}
+				if httpErr.ErrorMessage != nil {
+					body.ErrorMessage = httpErr.ErrorMessage
+				}
+				HttpWrite(w, httpErr.StatusCode, body)
+				return
+			} else {
+				msg := "InternalServerError"
+				description := "Internal Server Error"
+				body := &e{ErrorMessage:&msg, Description:&description}
+				HttpWrite(w, 500, body)
+				return
+			}
 		}
 		HttpWrite(w, 200, resp)
 	}).Methods("GET")

@@ -24,9 +24,10 @@ func TestAwsProvision(t *testing.T) {
 	var dbUrl string
 	var instanceId string = RandomString(12)
 	var err error
+	var namePrefix = "test"
 	Convey("Given a fresh provisioner.", t, func() {
 
-		logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
+		logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: namePrefix})
 		So(err, ShouldBeNil)
 		So(logic, ShouldNotBeNil)
 
@@ -226,6 +227,10 @@ func TestAwsProvision(t *testing.T) {
 			
 			_, err = logic.ActionRestoreBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
 			So(err, ShouldBeNil)
+
+			dbInstance, err = logic.GetInstanceById(instanceId)
+			So(err, ShouldBeNil)
+			RestoreBackup(logic.storage, dbInstance, namePrefix, *backup.Id)
 
 			for i := 0; i < 30; i++ {
 				dbInstance, err = logic.GetInstanceById(instanceId)

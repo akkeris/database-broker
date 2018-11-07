@@ -248,6 +248,10 @@ func (provider PostgresSharedProvider) RotatePasswordReadOnlyUser(dbInstance *Db
 	return RotatePostgresReadOnlyRole(dbInstance, settings.GetMasterUriWithDb(dbInstance.Name), role)
 }
 
+func (provider PostgresSharedProvider) UpgradeVersion(dbInstance *DbInstance, proposed string) (*DbInstance, error) {
+	return nil, errors.New("This feature is not available on this plan")
+}
+
 // Technically the create role functions are used by any provider that implements postgres but we'll place
 // them here, but be aware they're not specific to this provider.
 func CreatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string) (DatabaseUrlSpec, error) {
