@@ -185,6 +185,12 @@ func (provider AWSClusteredProvider) Modify(dbInstance *DbInstance, plan *Provid
 	if err != nil {
 		return nil, err
 	}
+	
+	_, err = provider.UpgradeVersion(dbInstance, *settings.Cluster.EngineVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	return provider.awsInstanceProvider.ModifyWithSettings(dbInstance, plan, &settings.Instance)
 }
 

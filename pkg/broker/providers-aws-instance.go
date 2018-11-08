@@ -247,7 +247,7 @@ func (provider AWSInstanceProvider) upgradePlan(dbInstance *DbInstance, proposed
 	return versionUpgradePlan, nil
 }
 
-func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, proposed string) (*DbInstance, error) {
+func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, proposed string, settings *rds.CreateDBInstanceInput) (*DbInstance, error) {
 	versions, err := provider.upgradePlan(dbInstance, proposed)
 	if err != nil {
 		return nil, err
@@ -262,11 +262,69 @@ func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, propo
 		if err != nil {
 			return nil, err
 		}
-		_, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
+
+		// We want to prefer the database parameter group that was specified by the 
+		// configuration but during the upgrade process we may have to go through a
+		// different parameter group (if non default) in order to to reach the target
+		// parameter group of the plan. 
+
+		devres, err := provider.awssvc.DescribeDBEngineVersions(&rds.DescribeDBEngineVersionsInput{
+			MaxRecords:aws.Int64(100),
+			Engine:aws.String(dbInstance.Engine),
+			EngineVersion:aws.String(version),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(devres.DBEngineVersions) == 0 {
+			return nil, errors.New("No valid db engine versions could be found for " + dbInstance.Engine + " " + version)
+		}
+
+		groups, err := provider.awssvc.DescribeDBParameterGroups(&rds.DescribeDBParameterGroupsInput{})
+		if err != nil {
+			return nil, err
+		}
+
+		var dbParameterGroup *string = nil
+				
+		// Use the preferred one if AWS says it's available, and if it was specified in the plan.
+		if settings.DBParameterGroupName != nil && *settings.DBParameterGroupName != "" {
+			for _, group := range groups.DBParameterGroups {
+				if group.DBParameterGroupName != nil && *group.DBParameterGroupName == *settings.DBParameterGroupName {
+					dbParameterGroup = settings.DBParameterGroupName
+				} 
+			}
+		}
+
+		// Next if we cant use the default specified one, pick the default parameter group based on
+		// the versions parmaeter group family.
+		if dbParameterGroup == nil {
+			for _, group := range groups.DBParameterGroups {
+				if group.DBParameterGroupName != nil && group.DBParameterGroupFamily != nil && devres.DBEngineVersions[0].DBParameterGroupFamily != nil && *group.DBParameterGroupFamily == *devres.DBEngineVersions[0].DBParameterGroupFamily && *group.DBParameterGroupName == ("default." + (*group.DBParameterGroupFamily)) {
+					dbParameterGroup = group.DBParameterGroupName
+				}
+			}
+		}
+
+		// Finally, if nothing still matches, just pick one.
+		if dbParameterGroup == nil {
+			for _, group := range groups.DBParameterGroups {
+				if group.DBParameterGroupFamily != nil && devres.DBEngineVersions[0].DBParameterGroupFamily != nil && *group.DBParameterGroupFamily == *devres.DBEngineVersions[0].DBParameterGroupFamily {
+					dbParameterGroup = group.DBParameterGroupName
+				}
+			}
+		}
+		if dbParameterGroup != nil {
+			glog.Infof("Database: %s upgrading to %s %s with %s\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion, *dbParameterGroup)
+		} else {
+			glog.Infof("Database: %s upgrading to %s %s with no specified parameter group.\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion)
+		}
+		_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
 			AllowMajorVersionUpgrade:aws.Bool(true),
 			EngineVersion:           aws.String(version),
 			ApplyImmediately:        aws.Bool(true),
 			DBInstanceIdentifier:    aws.String(dbInstance.Name),
+			DBParameterGroupName:    dbParameterGroup,
 		})
 		if err != nil {
 			return nil, err
@@ -297,6 +355,7 @@ func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, p
 	if dest.DBInstances == nil || len(dest.DBInstances) != 1 {
 		return nil, errors.New("Cannot find database to modify!")
 	}
+	glog.Infof("Database: %s modifying settings...\n", dbInstance.Id)
 	resp, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
 		AllocatedStorage:        settings.AllocatedStorage,
 		AutoMinorVersionUpgrade: settings.AutoMinorVersionUpgrade,
@@ -307,7 +366,6 @@ func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, p
 		PubliclyAccessible:      settings.PubliclyAccessible,
 		CopyTagsToSnapshot:      settings.CopyTagsToSnapshot,
 		BackupRetentionPeriod:   settings.BackupRetentionPeriod,
-		DBParameterGroupName:    settings.DBParameterGroupName,
 		StorageType:             settings.StorageType,
 		Iops:                    settings.Iops,
 	})
@@ -326,7 +384,7 @@ func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, p
 	// TODO: What about replicas?
 
 	// Upgrade the version seperately as this may be a lot of work.
-	newDbInstance, err := provider.UpgradeVersion(dbInstance, *settings.EngineVersion)
+	newDbInstance, err := provider.UpgradeVersion(dbInstance, *settings.EngineVersion, settings)
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +399,7 @@ func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, p
 	if dest.DBInstances == nil || len(dest.DBInstances) != 1 {
 		return nil, errors.New("Cannot find database once modified!")
 	}
-
+	glog.Infof("Database: %s modifications finished.\n", dbInstance.Id)
 	return &DbInstance{
 		Id:            dbInstance.Id,
 		Name:          dbInstance.Name,
