@@ -29,7 +29,7 @@ func NewAWSInstanceProvider(namePrefix string) (*AWSInstanceProvider, error) {
 	if os.Getenv("AWS_VPC_SECURITY_GROUPS") == "" {
 		return nil, errors.New("Unable to find AWS_VPC_SECURITY_GROUPS environment variable.")
 	}
-	t := time.NewTicker(time.Second * 30)
+	t := time.NewTicker(time.Second * 5)
 	awsInstanceProvider := &AWSInstanceProvider{
 		namePrefix:          namePrefix,
 		instanceCache:		 make(map[string]*DbInstance),
@@ -132,11 +132,19 @@ func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnap
 		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
 		SkipFinalSnapshot:    aws.Bool(!takeSnapshot),
 	})
-	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier:      aws.String(dbInstance.Name),
-		FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
-		SkipFinalSnapshot:         aws.Bool(!takeSnapshot),
-	})
+	var err error = nil
+	if takeSnapshot {
+		_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier:      aws.String(dbInstance.Name),
+			FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
+			SkipFinalSnapshot:         aws.Bool(false),
+		})
+	} else {
+		_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier:      aws.String(dbInstance.Name),
+			SkipFinalSnapshot:         aws.Bool(true),
+		})
+	}
 	return err
 }
 
