@@ -308,6 +308,8 @@ type Storage interface {
 	StartProvisioningTasks() ([]DbEntry, error)
 	NukeInstance(string) error
 	WarnOnUnfinishedTasks()
+    IsRestoring(*DbInstance) (bool, error)
+    IsUpgrading(*DbInstance) (bool, error)
 }
 
 type PostgresStorage struct {
@@ -532,6 +534,18 @@ func (b *PostgresStorage) UpdateRole(dbInstance *DbInstance, username string, pa
     return role, err
 }
 
+func (b *PostgresStorage) IsUpgrading(dbInstance *DbInstance) (bool, error) {
+    var count int64
+    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and (action = 'change-providers' OR action = 'change-plans') and deleted = false and database = $1", dbInstance.Id).Scan(&count)
+    return count > 0, err
+}
+
+func (b *PostgresStorage) IsRestoring(dbInstance *DbInstance) (bool, error) {
+    var count int64
+    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and action = 'restore-database' and deleted = false and database = $1", dbInstance.Id).Scan(&count)
+    return count > 0, err
+}
+
 func (b *PostgresStorage) HasRole(dbInstance *DbInstance, username string) (int64, error) {
 	var count int64
 	err := b.db.QueryRow("select count(*) from roles where database = $1 and username = $2 and deleted = false", dbInstance.Id, username).Scan(&count)
@@ -696,7 +710,7 @@ func (b *PostgresStorage) UpdateTask(Id string, status *string, retries *int64, 
 
 func (b *PostgresStorage) WarnOnUnfinishedTasks() {
 	var amount int
-	err := b.db.QueryRow("select count(*) from tasks where status = 'started' and extract(hours from now() - started) > 24").Scan(&amount)
+	err := b.db.QueryRow("select count(*) from tasks where status = 'started' and extract(hours from now() - started) > 24 and deleted = false").Scan(&amount)
 	if err != nil {
 		glog.Errorf("Unable to select stale tasks: %s\n", err.Error())
 		return

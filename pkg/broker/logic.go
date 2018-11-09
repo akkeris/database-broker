@@ -687,13 +687,37 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 		glog.Errorf("Unable to get database (%s) status: %s\n", request.InstanceID, err.Error()) 
 		return nil, InternalServerError()
 	}
+	
 	b.storage.UpdateInstance(dbInstance, dbInstance.Plan.ID)
-	response.Description = &dbInstance.Status
-	if dbInstance.Ready == true {
+
+	
+	upgrading, err := b.storage.IsUpgrading(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to get database (%s) status, IsUpgrading failed: %s\n", request.InstanceID, err.Error()) 
+		return nil, InternalServerError()
+	}
+	restoring, err := b.storage.IsRestoring(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to get database (%s) status, IsRestoring failed: %s\n", request.InstanceID, err.Error()) 
+		return nil, InternalServerError()
+	}
+
+	if upgrading {
+		desc := "upgrading"
+		response.Description = &desc
+		response.State = osb.StateInProgress
+	} else if restoring {		
+		desc := "restoring"
+		response.Description = &desc
+		response.State = osb.StateInProgress
+	} else if dbInstance.Ready == true {
+		response.Description = &dbInstance.Status
 		response.State = osb.StateSucceeded
 	} else if InProgress(dbInstance.Status) {
+		response.Description = &dbInstance.Status
 		response.State = osb.StateInProgress
 	} else {
+		response.Description = &dbInstance.Status
 		response.State = osb.StateFailed
 	}
 	return &response, nil
