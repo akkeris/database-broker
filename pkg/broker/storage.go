@@ -308,8 +308,8 @@ type Storage interface {
 	StartProvisioningTasks() ([]DbEntry, error)
 	NukeInstance(string) error
 	WarnOnUnfinishedTasks()
-    IsRestoring(*DbInstance) (bool, error)
-    IsUpgrading(*DbInstance) (bool, error)
+    IsRestoring(string) (bool, error)
+    IsUpgrading(string) (bool, error)
 }
 
 type PostgresStorage struct {
@@ -534,15 +534,15 @@ func (b *PostgresStorage) UpdateRole(dbInstance *DbInstance, username string, pa
     return role, err
 }
 
-func (b *PostgresStorage) IsUpgrading(dbInstance *DbInstance) (bool, error) {
+func (b *PostgresStorage) IsUpgrading(dbId string) (bool, error) {
     var count int64
-    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and (action = 'change-providers' OR action = 'change-plans') and deleted = false and database = $1", dbInstance.Id).Scan(&count)
+    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and (action = 'change-providers' OR action = 'change-plans') and deleted = false and database = $1", dbId).Scan(&count)
     return count > 0, err
 }
 
-func (b *PostgresStorage) IsRestoring(dbInstance *DbInstance) (bool, error) {
+func (b *PostgresStorage) IsRestoring(dbId string) (bool, error) {
     var count int64
-    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and action = 'restore-database' and deleted = false and database = $1", dbInstance.Id).Scan(&count)
+    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and action = 'restore-database' and deleted = false and database = $1", dbId).Scan(&count)
     return count > 0, err
 }
 
