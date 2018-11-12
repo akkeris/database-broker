@@ -680,6 +680,40 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 
 func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *broker.RequestContext) (*broker.LastOperationResponse, error) {
 	response := broker.LastOperationResponse{}
+	
+	upgrading, err := b.storage.IsUpgrading(request.InstanceID)
+	if err != nil {
+		glog.Errorf("Unable to get database (%s) status, IsUpgrading failed: %s\n", request.InstanceID, err.Error()) 
+		return nil, InternalServerError()
+	}
+
+	restoring, err := b.storage.IsRestoring(request.InstanceID)
+	if err != nil {
+		glog.Errorf("Unable to get database (%s) status, IsRestoring failed: %s\n", request.InstanceID, err.Error()) 
+		return nil, InternalServerError()
+	}
+
+	if upgrading {
+		desc := "upgrading"
+		dbInstance, err := b.GetInstanceById(request.InstanceID)
+		if err == nil && dbInstance.Status != "available" {
+			desc = dbInstance.Status
+		}
+		response.Description = &desc
+		response.State = osb.StateInProgress
+		return &response, nil
+	} else if restoring {		
+		desc := "restoring"
+		dbInstance, err := b.GetInstanceById(request.InstanceID)
+		if err == nil && dbInstance.Status != "available" {
+			desc = dbInstance.Status
+		}
+		response.Description = &desc
+		response.State = osb.StateInProgress
+		return &response, nil
+	}  
+
+
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
 	if err != nil && err.Error() == "Cannot find database instance" {
 		return nil, NotFound()
@@ -690,27 +724,7 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 	
 	b.storage.UpdateInstance(dbInstance, dbInstance.Plan.ID)
 
-	
-	upgrading, err := b.storage.IsUpgrading(dbInstance)
-	if err != nil {
-		glog.Errorf("Unable to get database (%s) status, IsUpgrading failed: %s\n", request.InstanceID, err.Error()) 
-		return nil, InternalServerError()
-	}
-	restoring, err := b.storage.IsRestoring(dbInstance)
-	if err != nil {
-		glog.Errorf("Unable to get database (%s) status, IsRestoring failed: %s\n", request.InstanceID, err.Error()) 
-		return nil, InternalServerError()
-	}
-
-	if upgrading {
-		desc := "upgrading"
-		response.Description = &desc
-		response.State = osb.StateInProgress
-	} else if restoring {		
-		desc := "restoring"
-		response.Description = &desc
-		response.State = osb.StateInProgress
-	} else if dbInstance.Ready == true {
+	if dbInstance.Ready == true {
 		response.Description = &dbInstance.Status
 		response.State = osb.StateSucceeded
 	} else if InProgress(dbInstance.Status) {
