@@ -49,6 +49,10 @@ func (provider AWSClusteredProvider) GetInstance(name string, plan *ProviderPlan
 	return provider.awsInstanceProvider.GetInstance(name, plan)
 }
 
+func (provider AWSClusteredProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
+	return db, nil
+}
+
 func (provider AWSClusteredProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
 	var settings AWSClusteredProviderPrivatePlanSettings
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {

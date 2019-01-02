@@ -14,6 +14,9 @@ import (
 )
 
 func TestProvision(t *testing.T) {
+	if os.Getenv("TEST_SHARED_POSTGRES") == "" {
+		return
+	}
 	var logic *BusinessLogic
 	var catalog *broker.CatalogResponse
 	var plan osb.Plan

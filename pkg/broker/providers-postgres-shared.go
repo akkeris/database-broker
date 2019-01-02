@@ -73,6 +73,10 @@ func (provider PostgresSharedProvider) GetInstance(name string, plan *ProviderPl
 	}, nil
 }
 
+func (provider PostgresSharedProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
+	return db, nil
+}
+
 func (provider PostgresSharedProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
 	var settings PostgresSharedProviderPrivatePlanSettings
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {

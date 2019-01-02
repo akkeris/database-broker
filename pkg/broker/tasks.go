@@ -27,6 +27,7 @@ const (
 	ChangeProvidersTask					 TaskAction = "change-providers"
 	ChangePlansTask						 TaskAction = "change-plans"
 	RestoreDbTask						 TaskAction = "restore-database"
+	PerformPostProvisionTask			 TaskAction = "perform-post-provision"
 )
 
 type Task struct {
@@ -115,7 +116,7 @@ func RunPreprovisionTasks(ctx context.Context, o Options, namePrefix string, sto
 			}
 			continue
 		}
-		if dbInstance.Status != "available" {
+		if !IsAvailable(dbInstance.Status) {
 			if _, err = storage.AddTask(dbInstance.Id, ResyncFromProviderUntilAvailableTask, ""); err != nil {
 				glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
 			}
@@ -173,7 +174,7 @@ func UpgradeWithinProviders(storage Storage, fromDb *DbInstance, toPlanId string
 		return "", err
 	}
 
-	if dbInstance.Status != "available" {
+	if !IsAvailable(dbInstance.Status) {
 		if _, err = storage.AddTask(dbInstance.Id, ResyncFromProviderTask, ""); err != nil {
 			glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
 		}
@@ -232,7 +233,7 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 			}
 			return "", errors.New("The database provisioning never finished.")
 		}
-		if toDb.Status == "available" {
+		if IsAvailable(toDb.Status) {
 			break;
 		}
 		<-t.C
@@ -377,11 +378,52 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to update instance: "+err.Error(), "pending")
 				continue
 			}
-			if dbInstance.Status != "available" {
+			if !IsAvailable(dbInstance.Status) {
 				glog.Infof("Status did not change at provider for task: %s\n", task.Id)
 				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check (" + dbInstance.Status + ")", "pending")
 				continue
 			}
+			FinishedTask(storage, task.Id, task.Retries, "", "finished")
+		} else if task.Action == PerformPostProvisionTask {
+			glog.Infof("Resyncing from provider until available (for perform post provision) for task: %s\n", task.Id)
+			if task.Retries >= 60 {
+				glog.Infof("Retry limit was reached for task: %s %d\n", task.Id, task.Retries)
+				FinishedTask(storage, task.Id, task.Retries, "Unable to resync information from provider for database "+task.DatabaseId+" as it failed multiple times ("+task.Result+")", "failed")
+				continue
+			}
+			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
+			if err != nil {
+				glog.Infof("Failed to get provider instance for task: %s, %s\n", task.Id, err.Error())
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
+				continue
+			}
+			if err = storage.UpdateInstance(dbInstance, dbInstance.Plan.ID); err != nil {
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to update instance: "+err.Error(), "pending")
+				continue
+			}
+			if !IsAvailable(dbInstance.Status) {
+				glog.Infof("Status did not change at provider for task: %s\n", task.Id)
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check (" + dbInstance.Status + ")", "pending")
+				continue
+			}
+
+			provider, err := GetProviderByPlan(namePrefix, dbInstance.Plan)
+			if err != nil {
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get provider: " + err.Error(), "pending")
+				continue
+			}
+
+			newDbInstance, err := provider.PerformPostProvision(dbInstance)
+			if err != nil {
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to update instance: " + err.Error(), "pending")
+				continue
+			}
+
+			if err = storage.UpdateInstance(newDbInstance, newDbInstance.Plan.ID); err != nil {
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to update instance after post provision: "+err.Error(), "pending")
+				continue
+			}
+
 			FinishedTask(storage, task.Id, task.Retries, "", "finished")
 		} else if task.Action == NotifyCreateServiceWebhookTask {
 
@@ -395,7 +437,7 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
 				continue
 			}
-			if dbInstance.Status != "available" {
+			if !IsAvailable(dbInstance.Status) {
 				glog.Infof("Status did not change at provider for task: %s\n", task.Id)
 				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check", "pending")
 				continue
@@ -477,7 +519,6 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			}
 
 			FinishedTask(storage, task.Id, task.Retries, output, "finished")
-
 		} else if task.Action == RestoreDbTask {
 			glog.Infof("Restoring database for: %s\n", task.Id)
 			if task.Retries >= 60 {
@@ -505,7 +546,6 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			}
 
 			FinishedTask(storage, task.Id, task.Retries, "", "finished")
-
 		} else if task.Action == ChangeProvidersTask {
 			glog.Infof("Changing providers for database: %s\n", task.Id)
 			if task.Retries >= 60 {
