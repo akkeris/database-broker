@@ -15,11 +15,21 @@ import (
 	"net/http"
 	"os"
 	"sync"
+	"strings"
+	"strconv"
 	"text/template"
 	"time"
 )
 
 var randomSource = rand.NewSource(time.Now().UnixNano())
+
+func ApplyParamsToStatement(statement string, args ...string) string {
+	for i, arg := range args {
+		idx := strconv.Itoa(i + 1)
+		statement = strings.Replace(statement, "$" + idx, arg, -1)
+	}
+	return statement
+}
 
 const letterBytes = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ"
 const (

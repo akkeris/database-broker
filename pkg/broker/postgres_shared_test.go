@@ -40,7 +40,6 @@ func TestProvision(t *testing.T) {
 			So(task, ShouldBeNil)
 			So(err, ShouldNotBeNil)
 
-
 			entry, err := storage.GetUnclaimedInstance("50660450-61d3-2c13-a3fd-d379997932fa", "my-new-test-instance")
 			So(err, ShouldBeNil)
 
@@ -60,11 +59,18 @@ func TestProvision(t *testing.T) {
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 2)
 			//service = catalog.Services[0]
-			plan = catalog.Services[0].Plans[1]
-			So(plan.Name, ShouldEqual, "hobby-v9")
+
+			var foundHobby = false
+			for _, p := range catalog.Services[0].Plans {
+				if p.Name == "hobby-v9" {
+					plan = p
+					foundHobby = true
+				}
+			}
+			So(foundHobby, ShouldEqual, true)
 		})
 
-		Convey("Ensure provisioner for shared postrges works", func() {
+		Convey("Ensure provisioner for shared postrges can provision a database", func() {
 			var request osb.ProvisionRequest
 			var c broker.RequestContext
 			request.AcceptsIncomplete = false
@@ -198,7 +204,93 @@ func TestProvision(t *testing.T) {
 
 			So(err, ShouldBeNil)
 			So(dres, ShouldNotBeNil)
+		})
 
+		Convey("Ensure postgres can be deprovisioned when a user (readonly and service account) are connected", func() {
+			// create database
+			c := broker.RequestContext{}
+			var request osb.ProvisionRequest
+			instanceId = RandomString(12)
+			request.AcceptsIncomplete = true
+			request.InstanceID = instanceId
+			request.PlanID = plan.ID
+			_, err := logic.Provision(&request, &c)
+			var guid = "123e4567-e89b-12d3-a456-426655440000"
+			var resource osb.BindResource = osb.BindResource{AppGUID: &guid}
+			var brequest osb.BindRequest = osb.BindRequest{InstanceID: instanceId, BindingID: "foo", BindResource: &resource}
+			dres, err := logic.Bind(&brequest, &c)
+			So(err, ShouldBeNil)
+			So(dres, ShouldNotBeNil)
+			dbServiceUrl := dres.Credentials["DATABASE_URL"].(string)
+			So(dbServiceUrl, ShouldStartWith, "postgres://")
+
+			// create read only user
+			resp, err := logic.ActionCreateRole(instanceId, map[string]string{}, &c)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			dbReadOnlySpec := resp.(DatabaseUrlSpec)
+			var dbReadonlyUrl = "postgres://" + dbReadOnlySpec.Username + ":" + dbReadOnlySpec.Password + "@" + dbReadOnlySpec.Endpoint
+
+			// create a connection via both service and read only rolls
+			dbServiceConn, err := sql.Open("postgres", dbServiceUrl + "?sslmode=disable")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			defer dbServiceConn.Close()
+			_, err = dbServiceConn.Exec("CREATE TABLE mytable (somefield text)")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			var random = RandomString(55)
+			_, err = dbServiceConn.Exec("insert into mytable (somefield) values ('" + random + "')")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+
+			dbReadonlyConn, err := sql.Open("postgres", dbReadonlyUrl + "?sslmode=disable")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			defer dbReadonlyConn.Close()
+			var readRandom string
+			err = dbReadonlyConn.QueryRow("select somefield from mytable").Scan(&readRandom)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			So(random, ShouldEqual, readRandom)
+
+			// Deprovision the instance
+			var drequest osb.DeprovisionRequest = osb.DeprovisionRequest{InstanceID: instanceId}
+			dres2, err := logic.Deprovision(&drequest, &c)
+			So(err, ShouldBeNil)
+			So(dres2, ShouldNotBeNil)
+
+			// ensure the existing connections have been closed and return an error. 
+			err = dbServiceConn.QueryRow("select somefield from mytable").Scan(&readRandom)
+			So(err, ShouldNotBeNil)
+			err = dbReadonlyConn.QueryRow("select somefield from mytable").Scan(&readRandom)
+			So(err, ShouldNotBeNil)
+
+			// Ensure we can no longer connect with the read only account or service account.
+			dbServiceConn2, err := sql.Open("postgres", dbServiceUrl + "?sslmode=disable")
+			if err == nil {
+				defer dbServiceConn2.Close()
+				err = dbServiceConn2.Ping()
+			}
+			So(err, ShouldNotBeNil)
+			dbReadonlyConn2, err := sql.Open("postgres", dbReadonlyUrl + "?sslmode=disable")
+			if err == nil {
+				dbReadonlyConn2.Close()
+				err = dbReadonlyConn2.Ping()
+			}
+			So(err, ShouldNotBeNil)
 		})
 	})
 }

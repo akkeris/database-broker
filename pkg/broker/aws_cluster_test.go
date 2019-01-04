@@ -34,7 +34,17 @@ func TestAwsClusterProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 2)
-			plan = catalog.Services[1].Plans[0]
+			//plan = catalog.Services[1].Plans[0]
+			var foundPremium = false
+			for _, p := range catalog.Services[1].Plans {
+				if p.Name == "premium-0" {
+					plan = p
+					foundPremium = true
+				}
+			}
+
+			So(foundPremium, ShouldEqual, true)
+
 			So(plan.Name, ShouldEqual, "premium-0")
 			So(plan.ID, ShouldEqual, "bb660450-61d3-1c13-a3fd-d3799979322a")
 		})
