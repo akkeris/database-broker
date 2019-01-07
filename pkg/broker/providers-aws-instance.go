@@ -78,6 +78,10 @@ func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan)
 	return provider.instanceCache[name + plan.ID], nil
 }
 
+func (provider AWSInstanceProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
+	return db, nil
+}
+
 func (provider AWSInstanceProvider) ProvisionWithSettings(Id string, plan *ProviderPlan, settings *rds.CreateDBInstanceInput) (*DbInstance, error) {
 	resp, err := provider.awssvc.CreateDBInstance(settings)
 	if err != nil {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"testing"
 	_ "github.com/lib/pq"
+	"database/sql"
 	"fmt"
 	"time"
 	"net/url"
@@ -38,8 +39,16 @@ func TestAwsProvision(t *testing.T) {
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 2)
 			//service = catalog.Services[0]
-			plan = catalog.Services[0].Plans[2]
-			So(plan.Name, ShouldEqual, "premium-0")
+			//plan = catalog.Services[0].Plans[2]
+			var foundPremium = false
+			for _, p := range catalog.Services[0].Plans {
+				if p.Name == "premium-0" {
+					plan = p
+					foundPremium = true
+				}
+			}
+
+			So(foundPremium, ShouldEqual, true)
 		})
 
 		Convey("Ensure provisioner for aws instances works", func() {
@@ -58,6 +67,11 @@ func TestAwsProvision(t *testing.T) {
 
 			So(err, ShouldBeNil)
 			So(res, ShouldNotBeNil)
+
+			task, err := logic.storage.PopPendingTask()
+			So(err, ShouldBeNil)
+			So(task.Action, ShouldEqual, PerformPostProvisionTask)
+			FinishedTask(logic.storage, task.Id, task.Retries, "", "finished")
 
 			var dbInstance *DbInstance = nil
 			t := time.NewTicker(time.Second * 30)
@@ -185,7 +199,6 @@ func TestAwsProvision(t *testing.T) {
 
 			_, err = logic.ActionDeleteRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
 			So(err, ShouldBeNil)
-			// TODO: ensure you cant login
 		})
 
 		// This should be near the end of the tests always,
@@ -195,6 +208,18 @@ func TestAwsProvision(t *testing.T) {
 		Convey("Ensure backup and restores work", func() {
 			var c broker.RequestContext
 			var dbInstance *DbInstance = nil
+
+
+			So(dbUrl, ShouldNotEqual, "")
+
+			var randStr = RandomString(15)
+			db, err := sql.Open("postgres", dbUrl)
+			So(err, ShouldBeNil)
+			defer db.Close()
+			_, err = db.Exec("create table testing (foo text);")
+			So(err, ShouldBeNil)
+			_, err = db.Exec("insert into testing (foo) values ('" + randStr + "');")
+			So(err, ShouldBeNil)
 			
 			backupsresp, err := logic.ActionListBackups(instanceId, map[string]string{}, &c)
 			So(err, ShouldBeNil)
@@ -224,13 +249,22 @@ func TestAwsProvision(t *testing.T) {
 				fmt.Printf(".")
 				<-t.C
 			}
+
+			_, err = db.Exec("delete from testing")
+			So(err, ShouldBeNil)
+			_, err = db.Exec("insert into testing (foo) values ('invalid');")
+			So(err, ShouldBeNil)
 			
 			_, err = logic.ActionRestoreBackup(instanceId, map[string]string{"backup":*backup.Id}, &c)
 			So(err, ShouldBeNil)
 
 			dbInstance, err = logic.GetInstanceById(instanceId)
 			So(err, ShouldBeNil)
+			task, err := logic.storage.PopPendingTask()
+			So(err, ShouldBeNil)
+			So(task.Action, ShouldEqual, RestoreDbTask)
 			RestoreBackup(logic.storage, dbInstance, namePrefix, *backup.Id)
+			FinishedTask(logic.storage, task.Id, task.Retries, "", "finished")
 
 			for i := 0; i < 30; i++ {
 				dbInstance, err = logic.GetInstanceById(instanceId)
@@ -243,6 +277,13 @@ func TestAwsProvision(t *testing.T) {
 			}
 			So(dbInstance, ShouldNotBeNil)
 
+			db2, err := sql.Open("postgres", dbUrl)
+			defer db2.Close()
+			var randOut string
+			err = db2.QueryRow("select foo from testing").Scan(&randOut)
+			So(err, ShouldBeNil)
+			So(randStr, ShouldEqual, randOut)
+
 		})
 
 		Convey("Ensure unbind for aws instance works", func() {
@@ -254,12 +295,6 @@ func TestAwsProvision(t *testing.T) {
 		})
 
 		Convey("Ensure deprovisioner for aws instance works", func() {
-			var request osb.LastOperationRequest = osb.LastOperationRequest{InstanceID: instanceId}
-			var c broker.RequestContext
-			res, err := logic.LastOperation(&request, &c)
-			So(err, ShouldBeNil)
-			So(res, ShouldNotBeNil)
-			So(res.State, ShouldEqual, osb.StateSucceeded)
 
 			t := time.NewTicker(time.Second * 30)
 			for i := 0; i < 30; i++ {
@@ -270,6 +305,12 @@ func TestAwsProvision(t *testing.T) {
 				}
 				<-t.C
 			}
+			var request osb.LastOperationRequest = osb.LastOperationRequest{InstanceID: instanceId}
+			var c broker.RequestContext
+			res, err := logic.LastOperation(&request, &c)
+			So(err, ShouldBeNil)
+			So(res, ShouldNotBeNil)
+			So(res.State, ShouldEqual, osb.StateSucceeded)
 
 			var drequest osb.DeprovisionRequest = osb.DeprovisionRequest{InstanceID: instanceId}
 			dres, err := logic.Deprovision(&drequest, &c)

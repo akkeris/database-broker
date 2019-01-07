@@ -20,7 +20,7 @@ func GetProvidersFromString(str string) Providers {
 	} else if str == "aws-cluster" {
 		return AWSCluster
 	}  else if str == "gcloud-instance" {
-		return PostgresShared
+		return GCloudInstance
 	} else if str == "postgres-shared" {
 		return PostgresShared
 	}
@@ -55,6 +55,7 @@ type Provider interface {
 	CreateReadReplica(*DbInstance) (*DbInstance, error)
 	GetReadReplica(*DbInstance) (*DbInstance, error)
 	DeleteReadReplica(*DbInstance) error
+	PerformPostProvision(*DbInstance) (*DbInstance, error)
 }
 
 func GetProviderByPlan(namePrefix string, plan *ProviderPlan) (Provider, error) {

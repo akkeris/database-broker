@@ -250,6 +250,67 @@ For example in the above if you didn't want to store the master password in the 
 }
 ```
 
+### Gcloud Specific Settings
+
+See https://godoc.org/google.golang.org/api/sqladmin/v1beta4#Settings for potential values.
+
+```
+{
+   "activationPolicy":null,
+   "authorizedGaeApplications":null,
+   "availabilityType":null,
+   "backupConfiguration":null,
+   "crashSafeReplicationEnabled":null,
+   "dataDiskSizeGb":"20",
+   "dataDiskType":null,
+   "databaseFlags":null,
+   "databaseReplicationEnabled":null,
+   "ipConfiguration":null,
+   "kind":"sql#settings",
+   "locationPreference":null,
+   "maintenanceWindow":null,
+   "pricingPlan":null,
+   "replicationType":null,
+   "settingsVersion":null,
+   "storageAutoResize":null,
+   "storageAutoResizeLimit":null,
+   "tier":"db-g1-small",
+   "userLabels":null
+}
+```
+
+***Sample Gcloud Specific Settings***
+
+**Important** 
+
+1. `dataDiskSizeGb` must be set and is a string not an int64 so quote the gigabytes (go figure)
+2. `tier` must be set and represents the servers memory and CPU size. This value may vary by account, run the gcloud CLI sdk command `gcloud sql tiers list` for a list of tier types you can provision and their id's, the id as a string is its value.
+3. You cannot use first generation tier types (I believe Dx,D0...)
+
+```
+{
+   "activationPolicy":"ALWAYS",
+   "authorizedGaeApplications":null,
+   "availabilityType":"REGIONAL",
+   "backupConfiguration":null,
+   "dataDiskSizeGb":"20",
+   "dataDiskType":"PD_SSD",
+   "databaseFlags":null,
+   "databaseReplicationEnabled":null,
+   "ipConfiguration":null,
+   "kind":"sql#settings",
+   "locationPreference":null,
+   "maintenanceWindow":null,
+   "pricingPlan":"PER_USE",
+   "settingsVersion":null,
+   "storageAutoResize":false,
+   "storageAutoResizeLimit":null,
+   "tier":"db-g1-small",
+   "userLabels":null
+}
+```
+
+
 ### 4. Setup Task Worker
 
 You'll need to deploy one or multiple (depending on your load) task workers with the same config or settings specified in Step 1. but with a different startup command, append the `-background-tasks` option to the service brokers startup command to put it into worker mode.  You MUST have at least 1 worker.
@@ -277,4 +338,6 @@ You can optionally pass in the startup options `-logtostderr=1 -stderrthreshold 
 `make test`
 
 Note, to run the aws instance and cluster tests `TEST_AWS_CLUSTER` and `TEST_AWS_INSTANCE` must be set to true.
+Note, to run the shared postgres tests set `TEST_SHARED_POSTGRES`
+
 

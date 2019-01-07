@@ -73,6 +73,10 @@ func (provider PostgresSharedProvider) GetInstance(name string, plan *ProviderPl
 	}, nil
 }
 
+func (provider PostgresSharedProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
+	return db, nil
+}
+
 func (provider PostgresSharedProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
 	var settings PostgresSharedProviderPrivatePlanSettings
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
@@ -147,18 +151,50 @@ func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeS
 	if err != nil {
 		return errors.New("Cannot deprovision shared database (connection failure): " + err.Error())
 	}
-
 	defer db.Close()
-	if _, err = db.Exec("DROP DATABASE " + dbInstance.Name); err != nil {
-		return errors.New("Failed to drop database shared tenant: " + err.Error())
+
+
+	// Get a list of all read only users
+	rows, err := db.Query(ApplyParamsToStatement(`
+		select 
+			groups.rolname as "group", 
+			members.rolname as "member" 
+		from pg_auth_members 
+			join pg_roles groups on pg_auth_members.roleid = groups.oid 
+			join pg_roles members on pg_auth_members.member = members.oid
+		where groups.rolname = '$1'
+	`, dbInstance.Name + "_readonly_users"))
+	if err != nil {
+		return errors.New("Failed to query read only users in role: " + err.Error())
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var group, role string
+		if err := rows.Scan(&group, &role); err != nil {
+			return errors.New("Failed to scan read only users in role: " + err.Error())
+		}
+		if err = DeletePostgresReadOnlyRole(dbInstance, settings.GetMasterUriWithDb(dbInstance.Name), role); err != nil {
+			return errors.New("Failed to remove read only user while deprovisioning database: " + dbInstance.Name + " error: " + err.Error())
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return errors.New("Failed to deprovision database while trying to fetch read only user results: " + dbInstance.Name + " error: "+ err.Error())
+	}
+	if _, err = db.Exec("ALTER DATABASE " + dbInstance.Name + " CONNECTION LIMIT 0"); err != nil {
+		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+	}
+	if _, err = db.Exec("SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '" + dbInstance.Name + "' AND pid <> pg_backend_pid()"); err != nil {
+		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
 	}
 	if _, err = db.Exec("REVOKE " + dbInstance.Username + " FROM CURRENT_USER"); err != nil {
-		return errors.New("Failed to revoke access from master user to shared tenant user: " + err.Error())
+		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: "+ err.Error())
+	}
+	if _, err = db.Exec("DROP DATABASE " + dbInstance.Name); err != nil {
+		return errors.New("Failed to drop database shared tenant: " + dbInstance.Name + " error: "+ err.Error())
 	}
 	if _, err = db.Exec("DROP USER " + dbInstance.Username); err != nil {
-		return errors.New("Failed to remove user: " + dbInstance.Username + " " + err.Error())
+		return errors.New("Failed to remove user: " + dbInstance.Name + " error: "+ err.Error())
 	}
-
 	return nil
 }
 
@@ -255,16 +291,36 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string) (Dat
 	if dbInstance.Engine != "postgres" {
 		return DatabaseUrlSpec{}, errors.New("I do not know how to do this on anything other than postgres.")
 	}
+
+	db, err := sql.Open("postgres", databaseUri)
+	readOnlyUserGroup := dbInstance.Name + "_readonly_users"
+
+	group_statement := `
+		do $$
+			begin
+				if not exists (select null from pg_roles where rolname = '$1') then
+					create role $1;
+				end if;
+			end
+		$$;
+	`
+	
+	if _, err := db.Exec(ApplyParamsToStatement(group_statement, readOnlyUserGroup)); err != nil {
+		return DatabaseUrlSpec{}, err
+	}
+
 	statement := `
 	do $$
 	begin
-	  create user $1 with login encrypted password $2;
+	  create user $1 with login encrypted password '$2';
 	  grant select on all tables in schema public TO $1;
 	  grant usage, select on all sequences in schema public TO $1;
 	  grant connect on database $3 to $1;
 	  alter default privileges in schema public GRANT SELECT ON TABLES TO $1;
 	  REVOKE CREATE ON SCHEMA public FROM $1;
 	  GRANT USAGE ON SCHEMA public TO $1;
+
+	  grant $5 to $1;
 
 	  ALTER DEFAULT PRIVILEGES FOR USER $4 IN SCHEMA public GRANT SELECT ON SEQUENCES TO $1;
 	  ALTER DEFAULT PRIVILEGES FOR USER $4 IN SCHEMA public GRANT SELECT ON TABLES TO $1;
@@ -273,7 +329,6 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string) (Dat
 	`
 
 	app_username := dbInstance.Username
-	db, err := sql.Open("postgres", databaseUri)
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
@@ -282,7 +337,7 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string) (Dat
 	username := "rdo1" + strings.ToLower(RandomString(7))
 	password := RandomString(10)
 
-	_, err = db.Exec(strings.Replace(strings.Replace(strings.Replace(strings.Replace(statement, "$1", username, -1), "$2", "'"+password+"'", -1), "$3", dbInstance.Name, -1), "$4", app_username, -1))
+	_, err = db.Exec(ApplyParamsToStatement(statement, username, password, dbInstance.Name, app_username, readOnlyUserGroup))
 	if err != nil {
 		return DatabaseUrlSpec{}, err
 	}
@@ -315,6 +370,7 @@ func DeletePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 	statement := `
 	do $$
 	begin
+	  perform pg_terminate_backend(pid) from pg_stat_activity where usename = '$1';
 	  ALTER DEFAULT PRIVILEGES FOR USER $3 IN SCHEMA public REVOKE SELECT ON SEQUENCES FROM $1;
 	  ALTER DEFAULT PRIVILEGES FOR USER $3 IN SCHEMA public REVOKE SELECT ON TABLES FROM $1;
 	  revoke usage on schema public FROM $1;
@@ -332,7 +388,8 @@ func DeletePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 	}
 	defer db.Close()
 
-	_, err = db.Exec(strings.Replace(strings.Replace(strings.Replace(statement, "$1", role, -1), "$2", dbInstance.Name, -1), "$3", dbInstance.Username, -1))
+	//_, err = db.Exec(strings.Replace(strings.Replace(strings.Replace(statement, "$1", role, -1), "$2", dbInstance.Name, -1), "$3", dbInstance.Username, -1))
+	_, err = db.Exec(ApplyParamsToStatement(statement, role, dbInstance.Name,  dbInstance.Username))
 	if err != nil {
 		return err
 	}

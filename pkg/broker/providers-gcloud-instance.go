@@ -6,6 +6,7 @@ import (
 	"golang.org/x/net/context"
 	"golang.org/x/oauth2/google"
 	"google.golang.org/api/sqladmin/v1beta4"
+	"github.com/golang/glog"
 	"os"
 	"strings"
 	"time"
@@ -22,33 +23,27 @@ type GCloudInstanceProvider struct {
 }
 
 func NewGCloudInstanceProvider(namePrefix string) (*GCloudInstanceProvider, error) {
-	if os.Getenv("PROJECT_ID") == "" {
-		return nil, errors.New("Unable to find PROJECT_ID environment variable.")
+	if os.Getenv("GCLOUD_PROJECT_ID") == "" {
+		return nil, errors.New("Unable to find GCLOUD_PROJECT_ID environment variable.")
 	}
-	if os.Getenv("REGION") == "" {
-		return nil, errors.New("Unable to find REGION environment variable.")
+	if os.Getenv("GCLOUD_REGION") == "" {
+		return nil, errors.New("Unable to find GCLOUD_REGION environment variable.")
 	}
 	
 	ctx := context.Background()
 
-	//var credentials *google.Credentials = nil
-	//var err error = nil
-	//if os.Getenv("GOOGLE_JSON_TOKEN") != "" {
-		//credentials, err = google.CredentialsFromJSON(ctx, []byte(os.Getenv("GOOGLE_JSON_TOKEN")), sqladmin.SqlserviceAdminScope)
-	//} else {
-		//credentials, err := google.DefaultClient(ctx, sqladmin.SqlserviceAdminScope)
-		//if err != nil {
-			//credentials, err = google.FindDefaultCredentials(ctx, sqladmin.SqlserviceAdminScope)
-			//if err != nil {
-				//return nil, err
-			//}
-		//}
-	//}
-	credentials, err := google.DefaultClient(ctx, sqladmin.SqlserviceAdminScope)
+	// Although undocumented, I've found that if i don't explicitly try and find the default
+	// credentials first (even if i don't use them), i'll get an unauthorized error. Maybe
+	// using this incorrectly.
+	_, err := google.FindDefaultCredentials(ctx, sqladmin.SqlserviceAdminScope)
 	if err != nil {
 		return nil, err
 	}
-	svc, err := sqladmin.New(credentials)
+	client, err := google.DefaultClient(ctx, sqladmin.SqlserviceAdminScope)
+	if err != nil {
+		return nil, err
+	}
+	svc, err := sqladmin.New(client)
 	if err != nil {
 		return nil, err
 	}
@@ -56,8 +51,8 @@ func NewGCloudInstanceProvider(namePrefix string) (*GCloudInstanceProvider, erro
 	t := time.NewTicker(time.Second * 30)
 	GCloudInstanceProvider := &GCloudInstanceProvider{
 		ctx:			 	 ctx,
-		projectId:			 os.Getenv("PROJECT_ID"),
-		region:			 	 os.Getenv("REGION"),
+		projectId:			 os.Getenv("GCLOUD_PROJECT_ID"),
+		region:			 	 os.Getenv("GCLOUD_REGION"),
 		namePrefix:          namePrefix,
 		instanceCache:		 make(map[string]*DbInstance),
 		svc:              	 svc,
@@ -83,12 +78,16 @@ func (provider GCloudInstanceProvider) GetInstance(name string, plan *ProviderPl
 		return nil, err
 	}
 
-	if len(resp.IpAddresses) == 0 {
-		return nil, errors.New("Unable to get instance ip address.")
+	var ipAddress string = ""
+	for _, ip := range resp.IpAddresses {
+		if ip.Type == "PRIMARY" {
+			ipAddress = ip.IpAddress
+		}
 	}
 
-	var endpoint = resp.IpAddresses[0].IpAddress + "/" + resp.Name
-	// ConnectionName, IpAddresses[...].IpAddress ... resp.IpAddresses[0] + ":" + strconv.FormatInt(*resp.DBInstances[0].Endpoint.Port, 10) + "/" + name
+	if len(resp.IpAddresses) == 0 || ipAddress == "" {
+		return nil, errors.New("Unable to get instance ip address.")
+	}
 
 	var dbEngine = "postgres"
 	var dbEngineVersion = "9.6"
@@ -106,7 +105,7 @@ func (provider GCloudInstanceProvider) GetInstance(name string, plan *ProviderPl
 		Plan:          plan,
 		Username:      "", // providers should not store this.
 		Password:      "", // providers should not store this.
-		Endpoint:      endpoint,
+		Endpoint:      ipAddress + "/" + resp.Name,
 		Status:        resp.State,
 		Ready:         IsReady(resp.State),
 		Engine:        dbEngine,
@@ -117,6 +116,22 @@ func (provider GCloudInstanceProvider) GetInstance(name string, plan *ProviderPl
 	return provider.instanceCache[name + plan.ID], nil
 }
 
+func (provider GCloudInstanceProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
+	usersService := sqladmin.NewUsersService(provider.svc)
+	var user sqladmin.User = sqladmin.User{
+		Instance:	db.Name,
+		Kind:		"sql#user",
+		Name:		db.Username,
+		Password:	db.Password,
+		Project:	provider.projectId,
+	}
+	if _, err := usersService.Insert(provider.projectId, db.Name, &user).Do(); err != nil {
+		glog.Infof("GCloudInstanceProvider: PerformPostProvision: Failure to insert new user: %s\n", err.Error())
+		return nil, err
+	}
+	return db, nil
+}
+
 func (provider GCloudInstanceProvider) ProvisionWithSettings(Id string, plan *ProviderPlan, settings *sqladmin.DatabaseInstance, user *sqladmin.User) (*DbInstance, error) {
 	svc := sqladmin.NewInstancesService(provider.svc)
 	_, err := svc.Insert(provider.projectId, settings).Do()
@@ -125,26 +140,13 @@ func (provider GCloudInstanceProvider) ProvisionWithSettings(Id string, plan *Pr
 	}
 	resp, err := svc.Get(provider.projectId, settings.Name).Do()
 	if err != nil {
+		glog.Infof("GCloudInstanceProvider: ProvisionWithSettings: Failure to get database: %s\n", err.Error())
 		return nil, err
 	}
-
-	usersService := sqladmin.NewUsersService(provider.svc)
-	_, err = usersService.Insert(provider.projectId, settings.Name, user).Do()
-	if err != nil {
-		return nil, err
-	}
-
-	var endpoint = "" // TODO
-
-	var dbEngine = "postgres"
-	var dbEngineVersion = "9.6"
-	if resp.DatabaseVersion == "MYSQL_5_7" || resp.DatabaseVersion == "MYSQL_5_6" {
-		dbEngine = "mysql"
-		dbEngineVersion = "5.6"
-		if resp.DatabaseVersion == "MYSQL_5_7" {
-			dbEngineVersion = "5.7"
-		}
-	}
+	
+	dbVersionInfo := strings.Split(resp.DatabaseVersion, "_")
+	dbEngine := strings.ToLower(dbVersionInfo[0])
+	dbEngineVersion := strings.Join(dbVersionInfo[1:], ".")
 
 	return &DbInstance{
 		Id:            Id,
@@ -153,6 +155,93 @@ func (provider GCloudInstanceProvider) ProvisionWithSettings(Id string, plan *Pr
 		Plan:          plan,
 		Username:      user.Name,
 		Password:      user.Password,
+		Endpoint:      "", // This is not immediately available.
+		Status:        resp.State,
+		Ready:         IsReady(resp.State),
+		Engine:        dbEngine,
+		EngineVersion: dbEngineVersion,
+		Scheme:        plan.Scheme,
+	}, nil
+}
+
+func (provider GCloudInstanceProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
+	var settings sqladmin.Settings 
+	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
+		return nil, err
+	}
+	var dbInstanceGcloud sqladmin.DatabaseInstance
+	dbInstanceGcloud.Settings = &settings
+	dbInstanceGcloud.BackendType = "SECOND_GEN"
+	if plan.basePlan.Metadata["engine"] == nil {
+		return nil, errors.New("Cannot find the engine type and engine version.")
+	}
+	var engine map[string]string = plan.basePlan.Metadata["engine"].(map[string]string)
+	// Assemble (or rather, infer) the engine/version from metadata on the plan.
+	vArray := strings.Split(engine["version"], ".")
+	maxLen := len(vArray)
+	if maxLen > 2 {
+		maxLen = 2
+	}
+	dbInstanceGcloud.DatabaseVersion = strings.ToUpper(engine["type"]) + "_" + strings.Join(vArray[0:maxLen], "_")
+	dbInstanceGcloud.Name = strings.ToLower(provider.namePrefix + RandomString(8))
+	dbInstanceGcloud.InstanceType = "CLOUD_SQL_INSTANCE"
+	dbInstanceGcloud.Project = provider.projectId
+	dbInstanceGcloud.Region = provider.region
+	if dbInstanceGcloud.Settings.UserLabels == nil {
+		dbInstanceGcloud.Settings.UserLabels = make(map[string]string)
+	}
+	if Owner != "" {
+		dbInstanceGcloud.Settings.UserLabels["billing-code"] = strings.ToLower(Owner)
+	} else {
+		dbInstanceGcloud.Settings.UserLabels["billing-code"] = "unknown"
+	}
+
+	var user sqladmin.User
+	user.Name = strings.ToLower("u" + RandomString(8))
+	user.Password = RandomString(16)
+
+	return provider.ProvisionWithSettings(Id, plan, &dbInstanceGcloud, &user)
+}
+
+func (provider GCloudInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
+	// TODO: snapshot?
+	svc := sqladmin.NewInstancesService(provider.svc)
+	_, err := svc.Delete(provider.projectId, dbInstance.Name).Do()
+	return err
+}
+
+func (provider GCloudInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, plan *ProviderPlan, settings *sqladmin.Settings) (*DbInstance, error) {
+	svc := sqladmin.NewInstancesService(provider.svc)
+
+	resp, err := svc.Get(provider.projectId, dbInstance.Name).Do()
+	if err != nil {
+		return nil, err
+	}
+	resp.Settings = settings
+	_, err = svc.Update(provider.projectId, dbInstance.Name, resp).Do()
+	if err != nil {
+		return nil, err
+	}
+	resp, err = svc.Get(provider.projectId, resp.Name).Do()
+	if err != nil {
+		return nil, err
+	}
+	if len(resp.IpAddresses) == 0 {
+		return nil, errors.New("Unable to get instance ip address.")
+	}
+
+	var endpoint = resp.IpAddresses[0].IpAddress + "/" + resp.Name
+	dbVersionInfo := strings.Split(resp.DatabaseVersion, "_")
+	dbEngine := strings.ToLower(dbVersionInfo[0])
+	dbEngineVersion := strings.Join(dbVersionInfo[1:], ".")
+
+	return &DbInstance{
+		Id:            dbInstance.Id,
+		Name:          dbInstance.Name,
+		ProviderId:    dbInstance.Name,
+		Plan:          plan,
+		Username:      dbInstance.Name,
+		Password:      dbInstance.Password,
 		Endpoint:      endpoint,
 		Status:        resp.State,
 		Ready:         IsReady(resp.State),
@@ -162,128 +251,24 @@ func (provider GCloudInstanceProvider) ProvisionWithSettings(Id string, plan *Pr
 	}, nil
 }
 
-
-func (provider GCloudInstanceProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
-	var settings sqladmin.DatabaseInstance 
-	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
-		return nil, err
-	}
-	settings.Name = strings.ToLower(provider.namePrefix + RandomString(8))
-	settings.InstanceType = "CLOUD_SQL_INSTANCE"
-	settings.Project = provider.projectId
-	settings.Region = provider.region
-
-	var user sqladmin.User
-	user.Name = strings.ToLower("u" + RandomString(8))
-	user.Password = RandomString(16)
-
-	return provider.ProvisionWithSettings(Id, plan, &settings, &user)
-}
-
-func (provider GCloudInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnapshot bool) error {
-
-
-
-	/*provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
-		SkipFinalSnapshot:    aws.Bool(!takeSnapshot),
-	})
-	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier:      aws.String(dbInstance.Name),
-		FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
-		SkipFinalSnapshot:         aws.Bool(!takeSnapshot),
-	})
-	return err*/
-	return errors.New("unimplemented")
-}
-
-func (provider GCloudInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, plan *ProviderPlan, settings *sqladmin.DatabaseInstance, user *sqladmin.User) (*DbInstance, error) {
-	/*resp, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
-		AllocatedStorage:        settings.AllocatedStorage,
-		AutoMinorVersionUpgrade: settings.AutoMinorVersionUpgrade,
-		ApplyImmediately:        aws.Bool(true),
-		DBInstanceClass:         settings.DBInstanceClass,
-		DBInstanceIdentifier:    aws.String(dbInstance.Name),
-		EngineVersion:           settings.EngineVersion,
-		MultiAZ:                 settings.MultiAZ,
-		PubliclyAccessible:      settings.PubliclyAccessible,
-		CopyTagsToSnapshot:      settings.CopyTagsToSnapshot,
-		BackupRetentionPeriod:   settings.BackupRetentionPeriod,
-		DBParameterGroupName:    settings.DBParameterGroupName,
-		DBSubnetGroupName:       settings.DBSubnetGroupName,
-		StorageType:             settings.StorageType,
-		Iops:                    settings.Iops,
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	var endpoint = dbInstance.Endpoint
-	if resp.DBInstance.Endpoint != nil && resp.DBInstance.Endpoint.Port != nil && resp.DBInstance.Endpoint.Address != nil {
-		endpoint = *resp.DBInstance.Endpoint.Address + ":" + strconv.FormatInt(*resp.DBInstance.Endpoint.Port, 10) + "/" + dbInstance.Name
-	}
-
-	// TODO: What about replicas?
-
-	return &DbInstance{
-		Id:            dbInstance.Id,
-		Name:          dbInstance.Name,
-		ProviderId:    *resp.DBInstance.DBInstanceArn,
-		Plan:          plan,
-		Username:      *resp.DBInstance.MasterUsername,
-		Password:      dbInstance.Password,
-		Endpoint:      endpoint,
-		Status:        *resp.DBInstance.DBInstanceStatus,
-		Ready:         IsReady(*resp.DBInstance.DBInstanceStatus),
-		Engine:        *resp.DBInstance.Engine,
-		EngineVersion: *resp.DBInstance.EngineVersion,
-		Scheme:        plan.Scheme,
-	}, nil*/
-	return nil, errors.New("unimplemented")
-}
-
 func (provider GCloudInstanceProvider) Modify(dbInstance *DbInstance, plan *ProviderPlan) (*DbInstance, error) {
-	/*if dbInstance.Status != "available" {
-		return nil, errors.New("Replicas cannot be created for databases being created, under maintenance or destroyed.")
-	}
-
-	var settings rds.CreateDBInstanceInput
+	glog.Infof("Database: %s modifying settings...\n", dbInstance.Id)
+	var settings sqladmin.Settings 
 	if err := json.Unmarshal([]byte(plan.providerPrivateDetails), &settings); err != nil {
 		return nil, err
 	}
-	return provider.ModifyWithSettings(dbInstance, plan, &settings)*/
-	return nil, errors.New("unimplemented")
+	dbNew, err := provider.ModifyWithSettings(dbInstance, plan, &settings)
+	glog.Infof("Database: %s modifications finished.\n", dbInstance.Id)
+	return dbNew, err
 }
 
 func (provider GCloudInstanceProvider) Tag(dbInstance *DbInstance, Name string, Value string) error {
-	/*	
-	// TODO: what abouut read replica?
-	// TODO: Support multiple values of the same tag name, comma delimit them.
-	_, err := provider.awssvc.AddTagsToResource(&rds.AddTagsToResourceInput{
-		ResourceName: aws.String(dbInstance.ProviderId),
-		Tags: []*rds.Tag{
-			{
-				Key:   aws.String(Name),
-				Value: aws.String(Value),
-			},
-		},
-	})
-	return err*/
+	
 	return errors.New("unimplemented")
 }
 
 func (provider GCloudInstanceProvider) Untag(dbInstance *DbInstance, Name string) error {
-	/*
-	// TODO: what abouut read replica?
-	// TODO: Support multiple values of the same tag name, comma delimit them.
-	_, err := provider.awssvc.RemoveTagsFromResource(&rds.RemoveTagsFromResourceInput{
-		ResourceName: aws.String(dbInstance.ProviderId),
-		TagKeys: []*string{
-			aws.String(Name),
-		},
-	})
-	return err*/
+	
 	return errors.New("unimplemented")
 }
 
@@ -377,13 +362,9 @@ func (provider GCloudInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id 
 }
 
 func (provider GCloudInstanceProvider) Restart(dbInstance *DbInstance) error {
-	/*
-	// What about replica?
-	_, err := provider.awssvc.RebootDBInstance(&rds.RebootDBInstanceInput{
-		DBInstanceIdentifier: aws.String(dbInstance.Name),
-	})
-	return err*/
-	return errors.New("unimplemented")
+	svc := sqladmin.NewInstancesService(provider.svc)
+	_, err := svc.Restart(provider.projectId, dbInstance.Name).Do()
+	return err
 }
 
 func (provider GCloudInstanceProvider) ListLogs(dbInstance *DbInstance) ([]DatabaseLogs, error) {
@@ -436,7 +417,7 @@ func (provider GCloudInstanceProvider) GetLogs(dbInstance *DbInstance, path stri
 func (provider GCloudInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*DbInstance, error) {
 	/*
 	// TODO: what about tags set?
-	if dbInstance.Status != "available" {
+	if dbInstance.Status != "RUNNABLE" {
 		return nil, errors.New("Replicas cannot be created for databases being created, under maintenance or destroyed.")
 	}
 	var settings rds.CreateDBInstanceInput
@@ -516,13 +497,22 @@ func (provider GCloudInstanceProvider) DeleteReadReplica(dbInstance *DbInstance)
 }
 
 func (provider GCloudInstanceProvider) CreateReadOnlyUser(dbInstance *DbInstance) (DatabaseUrlSpec, error) {
+	if !dbInstance.Ready {
+		return DatabaseUrlSpec{}, errors.New("Cannot rotate password on database that is unavailable.")
+	}
 	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint + "/" + dbInstance.Name)
 }
 
 func (provider GCloudInstanceProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
+	if !dbInstance.Ready {
+		return errors.New("Cannot rotate password on database that is unavailable.")
+	}
 	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint + "/" + dbInstance.Name, role)
 }
 
 func (provider GCloudInstanceProvider) RotatePasswordReadOnlyUser(dbInstance *DbInstance, role string) (DatabaseUrlSpec, error) {
+	if !dbInstance.Ready {
+		return DatabaseUrlSpec{}, errors.New("Cannot rotate password on database that is unavailable.")
+	}
 	return RotatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint + "/" + dbInstance.Name, role)
 }

@@ -542,8 +542,8 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 				}
 				return nil, InternalServerError()
 			}
-			if dbInstance.Status != "available" {
-				if _, err = b.storage.AddTask(dbInstance.Id, ResyncFromProviderUntilAvailableTask, ""); err != nil {
+			if !IsAvailable(dbInstance.Status) {
+				if _, err = b.storage.AddTask(dbInstance.Id, PerformPostProvisionTask, ""); err != nil {
 					glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", dbInstance.Name, err.Error())
 				}
 				// This is a hack to support callbacks, hopefully this will become an OSB standard.
@@ -634,7 +634,7 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 		return nil, UnprocessableEntity()
 	}
 
-	if dbInstance.Status != "available" {
+	if !IsAvailable(dbInstance.Status) {
 		return nil, UnprocessableEntityWithMessage("ConcurrencyError", "Clients MUST wait until pending requests have completed for the specified resources.")
 	}
 
@@ -696,7 +696,7 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 	if upgrading {
 		desc := "upgrading"
 		dbInstance, err := b.GetInstanceById(request.InstanceID)
-		if err == nil && dbInstance.Status != "available" {
+		if err == nil && !IsAvailable(dbInstance.Status) {
 			desc = dbInstance.Status
 		}
 		response.Description = &desc
@@ -705,7 +705,7 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 	} else if restoring {		
 		desc := "restoring"
 		dbInstance, err := b.GetInstanceById(request.InstanceID)
-		if err == nil && dbInstance.Status != "available" {
+		if err == nil && !IsAvailable(dbInstance.Status) {
 			desc = dbInstance.Status
 		}
 		response.Description = &desc
