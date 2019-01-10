@@ -14,7 +14,7 @@ import (
 type PostgresSharedProviderPrivatePlanSettings struct {
 	MasterUri     string `json:"master_uri"`
 	Engine        string `json:"engine"`
-	EngineVersion string `json:engine_version"`
+	EngineVersion string `json:"engine_version"`
 }
 
 func (psppps PostgresSharedProviderPrivatePlanSettings) MasterHost() string {

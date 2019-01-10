@@ -90,7 +90,6 @@ func RunPreprovisionTasks(ctx context.Context, o Options, namePrefix string, sto
 			storage.NukeInstance(entry.Id)
 			continue
 		}
-
 		provider, err := GetProviderByPlan(namePrefix, plan)
 		if err != nil {
 			glog.Errorf("Unable to provision, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
@@ -100,7 +99,7 @@ func RunPreprovisionTasks(ctx context.Context, o Options, namePrefix string, sto
 
 		dbInstance, err := provider.Provision(entry.Id, plan, "preprovisioned")
 		if err != nil {
-			glog.Errorf("Error provisioning database: %s\n", err.Error())
+			glog.Errorf("Error provisioning database (%s): %s\n", plan.ID, err.Error())
 			storage.NukeInstance(entry.Id)
 			continue
 		}

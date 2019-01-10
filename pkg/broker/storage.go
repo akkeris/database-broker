@@ -63,16 +63,12 @@ begin
         create domain alpha_numeric as varchar(128) check (value ~ '^[A-z0-9\-]+$');
     end if;
 
-    if not exists (select 1 from pg_type where typname = 'providertype') then
-        create type providertype as enum('aws-instance', 'aws-cluster', 'gcloud-instance', 'postgres-shared');
-    end if;
-
     if not exists (select 1 from pg_type where typname = 'enginetype') then
         create type enginetype as enum('postgres', 'aurora-mysql', 'aurora-postgresql', 'mariadb', 'mysql', 'oracle-ee', 'oracle-se2', 'oracle-se1', 'oracle-se', 'sqlserver-ee', 'sqlserver-se', 'sqlserver-ex', 'sqlserver-web');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'clientdbtype') then
-        create type clientdbtype as enum('postgres', 'mysql', 'mysqlx', 'oracledb', 'mssql');
+        create type clientdbtype as enum('postgres', 'mysql', 'mysqlx', 'oracledb', 'mssql', 'dsn', '');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'cents') then
@@ -128,7 +124,7 @@ begin
         cost_unit costunit not null default 'month',
         attributes json not null,
 
-        provider providertype not null,
+        provider varchar(1024) not null,
         provider_private_details json not null,
 
         installable_inside_private_network bool not null default true,
@@ -217,6 +213,15 @@ begin
               and udt_name = 'task_action'
               and table_schema = 'public') then
         alter table tasks alter column action TYPE varchar(1024) using action::varchar(1024);
+    end if;
+
+    if exists (SELECT NULL 
+              FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE table_name = 'plans'
+              AND column_name = 'provider'
+              and udt_name = 'providertype'
+              and table_schema = 'public') then
+        alter table plans alter column provider TYPE varchar(1024) using provider::varchar(1024);
     end if;
 
     drop trigger if exists tasks_updated on tasks;
