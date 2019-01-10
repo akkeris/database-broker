@@ -3,6 +3,7 @@ package broker
 import (
 	"encoding/json"
 	"errors"
+	"github.com/golang/glog"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds"
@@ -28,7 +29,7 @@ func NewAWSInstanceProvider(namePrefix string) (*AWSInstanceProvider, error) {
 	if os.Getenv("AWS_VPC_SECURITY_GROUPS") == "" {
 		return nil, errors.New("Unable to find AWS_VPC_SECURITY_GROUPS environment variable.")
 	}
-	t := time.NewTicker(time.Second * 30)
+	t := time.NewTicker(time.Second * 5)
 	awsInstanceProvider := &AWSInstanceProvider{
 		namePrefix:          namePrefix,
 		instanceCache:		 make(map[string]*DbInstance),
@@ -75,6 +76,10 @@ func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan)
 	}
 
 	return provider.instanceCache[name + plan.ID], nil
+}
+
+func (provider AWSInstanceProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
+	return db, nil
 }
 
 func (provider AWSInstanceProvider) ProvisionWithSettings(Id string, plan *ProviderPlan, settings *rds.CreateDBInstanceInput) (*DbInstance, error) {
@@ -131,35 +136,257 @@ func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnap
 		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
 		SkipFinalSnapshot:    aws.Bool(!takeSnapshot),
 	})
-	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier:      aws.String(dbInstance.Name),
-		FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
-		SkipFinalSnapshot:         aws.Bool(!takeSnapshot),
-	})
+	var err error = nil
+	if takeSnapshot {
+		_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier:      aws.String(dbInstance.Name),
+			FinalDBSnapshotIdentifier: aws.String(dbInstance.Name + "-final"),
+			SkipFinalSnapshot:         aws.Bool(false),
+		})
+	} else {
+		_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+			DBInstanceIdentifier:      aws.String(dbInstance.Name),
+			SkipFinalSnapshot:         aws.Bool(true),
+		})
+	}
 	return err
 }
 
+func (provider AWSInstanceProvider) upgradePlan(dbInstance *DbInstance, proposed string) ([]string, error) {
+	proposedVersion := strings.Split(proposed, ".")
+	currentVersion  := strings.Split(dbInstance.EngineVersion, ".")
+	
+	if len(proposedVersion) == 0 {
+		return nil, errors.New("No major version found.")
+	}
+
+	proposedMajor, err := strconv.Atoi(proposedVersion[0])
+	if err != nil {
+		return nil, err
+	}
+	proposedMinor := 1
+	if len(proposedVersion) > 1 {
+		proposedMinor, err = strconv.Atoi(proposedVersion[1])
+		if err != nil {
+			return nil, err
+		}
+	}
+	proposedPatch := 1
+	if len(proposedVersion) > 2 {
+		proposedPatch, err = strconv.Atoi(proposedVersion[2])
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var versionUpgradePlan []string
+	for {
+		currentMajor, err := strconv.Atoi(currentVersion[0])
+		if err != nil {
+			return nil, err
+		}
+		currentMinor := 1
+		if len(currentVersion) > 1 {
+			currentMinor, err = strconv.Atoi(currentVersion[1])
+			if err != nil {
+				return nil, err
+			}
+		}
+		currentPatch := 1
+		if len(currentVersion) > 2 {
+			currentPatch, err = strconv.Atoi(currentVersion[2])
+			if err != nil {
+				return nil, err
+			}
+		}
+		if  (currentMajor > proposedMajor) || 
+			(currentMajor == proposedMajor && currentMinor > proposedMinor) || 
+			(currentMajor == proposedMajor && currentMinor == proposedMinor && currentPatch >= proposedPatch) {
+				break
+		}
+
+		devres, err := provider.awssvc.DescribeDBEngineVersions(&rds.DescribeDBEngineVersionsInput{
+			MaxRecords:aws.Int64(100),
+			Engine:aws.String(dbInstance.Engine),
+			EngineVersion:aws.String(strings.Join(currentVersion, ".")),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// If there are no targets, c'est la vie. 
+		if len(devres.DBEngineVersions) == 0 || len(devres.DBEngineVersions[0].ValidUpgradeTarget) == 0 {
+			return nil, errors.New("Unable to find a valid upgrade path from " + dbInstance.EngineVersion + " to " + proposed)
+		}
+		
+		// If the target does not have a version, c'est la vie
+		if devres.DBEngineVersions[0].ValidUpgradeTarget[len(devres.DBEngineVersions[0].ValidUpgradeTarget) - 1].EngineVersion == nil {
+			return nil, errors.New("Odd, Engine Version was null, unable to upgrade.")
+		}
+
+		// We may be stuck in a loop if we keep proposing ourself.
+		nextMaxVersion := *devres.DBEngineVersions[0].ValidUpgradeTarget[len(devres.DBEngineVersions[0].ValidUpgradeTarget) - 1].EngineVersion
+		if nextMaxVersion == strings.Join(currentVersion, ".") {
+			return nil, errors.New("Odd, we keep getting ourselves as the next upgrade path.")
+		}
+
+		// See if an exact match to the proposed is in the target list, otherwise go for the maximum.
+		currentVersion = strings.Split(nextMaxVersion, ".")
+		for _, target := range devres.DBEngineVersions[0].ValidUpgradeTarget {
+			if target.EngineVersion == nil {
+				return nil, errors.New("Odd, Engine Version was null when searching available targets.")
+			}
+			if *target.EngineVersion == strings.Join(proposedVersion, ".") {
+				currentVersion = strings.Split(*target.EngineVersion, ".")
+			}
+		}
+
+		// See if the new proposed one already exists in the plan
+		for _, v := range versionUpgradePlan {
+			if v == strings.Join(currentVersion, ".") {
+				return nil, errors.New("Odd, the proposed upgrade was already in the version upgrade plan.")
+			}
+		}
+
+		// Append it as a next step
+		versionUpgradePlan = append(versionUpgradePlan, strings.Join(currentVersion, "."))
+	}
+
+	if len(versionUpgradePlan) > 10 {
+		return nil, errors.New("Unable to upgrade, too many steps were proposed in the upgrade plan.")
+	}
+
+	return versionUpgradePlan, nil
+}
+
+func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, proposed string, settings *rds.CreateDBInstanceInput) (*DbInstance, error) {
+	versions, err := provider.upgradePlan(dbInstance, proposed)
+	if err != nil {
+		return nil, err
+	}
+
+	// Begin the upgrades.
+	for _, version := range versions {
+		err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+			DBInstanceIdentifier: 	aws.String(dbInstance.Name),
+			MaxRecords:				aws.Int64(20),
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		// We want to prefer the database parameter group that was specified by the 
+		// configuration but during the upgrade process we may have to go through a
+		// different parameter group (if non default) in order to to reach the target
+		// parameter group of the plan. 
+
+		devres, err := provider.awssvc.DescribeDBEngineVersions(&rds.DescribeDBEngineVersionsInput{
+			MaxRecords:aws.Int64(100),
+			Engine:aws.String(dbInstance.Engine),
+			EngineVersion:aws.String(version),
+		})
+		if err != nil {
+			return nil, err
+		}
+		if len(devres.DBEngineVersions) == 0 {
+			return nil, errors.New("No valid db engine versions could be found for " + dbInstance.Engine + " " + version)
+		}
+
+		groups, err := provider.awssvc.DescribeDBParameterGroups(&rds.DescribeDBParameterGroupsInput{})
+		if err != nil {
+			return nil, err
+		}
+
+		var dbParameterGroup *string = nil
+				
+		// Use the preferred one if AWS says it's available, and if it was specified in the plan.
+		if settings.DBParameterGroupName != nil && *settings.DBParameterGroupName != "" {
+			for _, group := range groups.DBParameterGroups {
+				if group.DBParameterGroupName != nil && *group.DBParameterGroupName == *settings.DBParameterGroupName {
+					dbParameterGroup = settings.DBParameterGroupName
+				} 
+			}
+		}
+
+		// Next if we cant use the default specified one, pick the default parameter group based on
+		// the versions parmaeter group family.
+		if dbParameterGroup == nil {
+			for _, group := range groups.DBParameterGroups {
+				if group.DBParameterGroupName != nil && group.DBParameterGroupFamily != nil && devres.DBEngineVersions[0].DBParameterGroupFamily != nil && *group.DBParameterGroupFamily == *devres.DBEngineVersions[0].DBParameterGroupFamily && *group.DBParameterGroupName == ("default." + (*group.DBParameterGroupFamily)) {
+					dbParameterGroup = group.DBParameterGroupName
+				}
+			}
+		}
+
+		// Finally, if nothing still matches, just pick one.
+		if dbParameterGroup == nil {
+			for _, group := range groups.DBParameterGroups {
+				if group.DBParameterGroupFamily != nil && devres.DBEngineVersions[0].DBParameterGroupFamily != nil && *group.DBParameterGroupFamily == *devres.DBEngineVersions[0].DBParameterGroupFamily {
+					dbParameterGroup = group.DBParameterGroupName
+				}
+			}
+		}
+		if dbParameterGroup != nil {
+			glog.Infof("Database: %s upgrading to %s %s with %s\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion, *dbParameterGroup)
+		} else {
+			glog.Infof("Database: %s upgrading to %s %s with no specified parameter group.\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion)
+		}
+		_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
+			AllowMajorVersionUpgrade:aws.Bool(true),
+			EngineVersion:           aws.String(version),
+			ApplyImmediately:        aws.Bool(true),
+			DBInstanceIdentifier:    aws.String(dbInstance.Name),
+			DBParameterGroupName:    dbParameterGroup,
+		})
+		if err != nil {
+			return nil, err
+		}
+		dbInstance.EngineVersion = version
+		glog.Infof("Database: %s upgraded to %s %s\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion)
+		tick := time.NewTicker(time.Second * 30)
+		<-tick.C
+	}
+	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: 	aws.String(dbInstance.Name),
+		MaxRecords:				aws.Int64(20),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return dbInstance, nil
+}
 
 func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, plan *ProviderPlan, settings *rds.CreateDBInstanceInput) (*DbInstance, error) {
+	dest, err := provider.awssvc.DescribeDBInstances(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		MaxRecords:           aws.Int64(20),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if dest.DBInstances == nil || len(dest.DBInstances) != 1 {
+		return nil, errors.New("Cannot find database to modify!")
+	}
+	glog.Infof("Database: %s modifying settings...\n", dbInstance.Id)
 	resp, err := provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
 		AllocatedStorage:        settings.AllocatedStorage,
 		AutoMinorVersionUpgrade: settings.AutoMinorVersionUpgrade,
 		ApplyImmediately:        aws.Bool(true),
 		DBInstanceClass:         settings.DBInstanceClass,
 		DBInstanceIdentifier:    aws.String(dbInstance.Name),
-		EngineVersion:           settings.EngineVersion,
 		MultiAZ:                 settings.MultiAZ,
 		PubliclyAccessible:      settings.PubliclyAccessible,
 		CopyTagsToSnapshot:      settings.CopyTagsToSnapshot,
 		BackupRetentionPeriod:   settings.BackupRetentionPeriod,
-		DBParameterGroupName:    settings.DBParameterGroupName,
 		StorageType:             settings.StorageType,
 		Iops:                    settings.Iops,
 	})
-
 	if err != nil {
 		return nil, err
 	}
+
+	tick := time.NewTicker(time.Second * 30)
+	<-tick.C
 
 	var endpoint = dbInstance.Endpoint
 	if resp.DBInstance.Endpoint != nil && resp.DBInstance.Endpoint.Port != nil && resp.DBInstance.Endpoint.Address != nil {
@@ -168,25 +395,42 @@ func (provider AWSInstanceProvider) ModifyWithSettings(dbInstance *DbInstance, p
 
 	// TODO: What about replicas?
 
+	// Upgrade the version seperately as this may be a lot of work.
+	newDbInstance, err := provider.UpgradeVersion(dbInstance, *settings.EngineVersion, settings)
+	if err != nil {
+		return nil, err
+	}
+
+	dest, err = provider.awssvc.DescribeDBInstances(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: aws.String(newDbInstance.Name),
+		MaxRecords:           aws.Int64(20),
+	})
+	if err != nil {
+		return nil, err
+	}
+	if dest.DBInstances == nil || len(dest.DBInstances) != 1 {
+		return nil, errors.New("Cannot find database once modified!")
+	}
+	glog.Infof("Database: %s modifications finished.\n", dbInstance.Id)
 	return &DbInstance{
 		Id:            dbInstance.Id,
 		Name:          dbInstance.Name,
-		ProviderId:    *resp.DBInstance.DBInstanceArn,
+		ProviderId:    *dest.DBInstances[0].DBInstanceArn,
 		Plan:          plan,
-		Username:      *resp.DBInstance.MasterUsername,
+		Username:      *dest.DBInstances[0].MasterUsername,
 		Password:      dbInstance.Password,
 		Endpoint:      endpoint,
-		Status:        *resp.DBInstance.DBInstanceStatus,
-		Ready:         IsReady(*resp.DBInstance.DBInstanceStatus),
-		Engine:        *resp.DBInstance.Engine,
-		EngineVersion: *resp.DBInstance.EngineVersion,
+		Status:        *dest.DBInstances[0].DBInstanceStatus,
+		Ready:         IsReady(*dest.DBInstances[0].DBInstanceStatus),
+		Engine:        *dest.DBInstances[0].Engine,
+		EngineVersion: *dest.DBInstances[0].EngineVersion,
 		Scheme:        plan.Scheme,
 	}, nil
 }
 
 func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *ProviderPlan) (*DbInstance, error) {
-	if dbInstance.Status != "available" {
-		return nil, errors.New("Replicas cannot be created for databases being created, under maintenance or destroyed.")
+	if !CanBeModified(dbInstance.Status) {
+		return nil, errors.New("Databases cannot be modifed during backups, upgrades or while maintenance is being performed.")
 	}
 
 	var settings rds.CreateDBInstanceInput
@@ -387,22 +631,20 @@ func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id str
 		return err
 	}
 
-	go (func() {
-		err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
-			DBInstanceIdentifier: 	aws.String(dbInstance.Name),
-			MaxRecords:				aws.Int64(20),
-		})
-		if err != nil {
-			fmt.Printf("Unable to clean up database that should be removed after restoring (WaitUntilDBInstanceAvailable): %s %s\n", renamedId, err.Error())
-		}
-		_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-			DBInstanceIdentifier:      aws.String(renamedId),
-			SkipFinalSnapshot:         aws.Bool(true),
-		})
-		if err != nil {
-			fmt.Printf("Unable to clean up database that should be removed after restoring (DeleteDBInstance): %s %s\n", renamedId, err.Error())
-		}
-	})()
+	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
+		DBInstanceIdentifier: 	aws.String(dbInstance.Name),
+		MaxRecords:				aws.Int64(20),
+	})
+	if err != nil {
+		fmt.Printf("Unable to clean up database that should be removed after restoring (WaitUntilDBInstanceAvailable): %s %s\n", renamedId, err.Error())
+	}
+	_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
+		DBInstanceIdentifier:      aws.String(renamedId),
+		SkipFinalSnapshot:         aws.Bool(true),
+	})
+	if err != nil {
+		fmt.Printf("ERROR: Orphaned Database! Unable to clean up database that should be removed after restoring (DeleteDBInstance): %s %s\n", renamedId, err.Error())
+	}
 	return err
 }
 

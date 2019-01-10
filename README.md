@@ -11,7 +11,9 @@ A database broker for a variety of cloud providers and even on-prem db systems t
 The broker has support for the following providers
 
 * AWS RDS Instances and Clusters
+* Gcloud SQL Instances and Clusters
 * Postgres Databases via Shared Tenant
+* MySQL 5.5, 5.7, 8 Databases via Shared Tenant
 
 ## Features
 
@@ -27,7 +29,7 @@ The broker has support for the following providers
 
 ## Installing
 
-First, set your settings, so to speak, although not required these installation instructions assume you're deploying to a dockerized environment.  You'll also need to provision (manually) a postgres database so the database broker can store plans, databases and other information for itself.  Once you have your settings, move on to the deploy step, then finally setup your plans.
+First, set your settings, so to speak, although not required these installation instructions assume you're deploying to a dockerized environment.  You'll also need to provision (manually) a postgres database so the database broker can store plans, databases and other information for itself.  Once you have your settings, move on to the deploy step, then finally setup your [docs/PLANS.md](plans).
 
 ### 1. Settings
 
@@ -46,14 +48,19 @@ Note almost all of these can be set via the command line as well.
 
 Note that you can get away with not setting `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY` and use EC2 IAM roles or hard coded credentials via the `~/.aws/credentials` file but these are not recommended!
 
-**Shared Postgres Provider Specific**
-
-There are no environment variables for shared postgres providers, although sensitive configuration can be set in the enivornment, see plans for more information. 
-
 **Google Cloud Specific**
 
-* `GOOGLE_JSON_TOKEN` - The JSON string that has the project id, token from oauth2 as the value.
+* Gcloud credentials are automatically inferred by the SDK through the standard environment variables, installed credentials on the host, or via server roles.  See https://cloud.google.com/docs/authentication/production for more information on injecting credentials in the app (normally set `GOOGLE_APPLICATION_CREDENTIALS` to the path of your credentials (in json format). Ensure the credentials used have access to SQL administration.
+* `GCLOUD_PROJECT_ID` - The google project id to use.
+* `GCLOUD_REGION` - The google region used for this broker.
 
+**Shared Postgres Provider Specific**
+
+There are no environment variables for shared postgres providers, although sensitive configuration can be set in the enivornment, see [docs/PLANS.md](plans) for more information. 
+
+**Shared Mysql Provider Specific**
+
+There are no environment variables for shared postgres providers, although sensitive configuration can be set in the enivornment, see [docs/PLANS.md](plans) for more information. 
 
 **Optional**
 
@@ -66,189 +73,7 @@ You can deploy the image `akkeris/database-broker:lastest` via docker with the e
 
 ### 3. Plans
 
-You can create new services and plans by provider by modifying the entries in its database. You can configure the plans and services how you wish.  By default the database broker will create 14 different postgres plans from AWS and a shared tenant system, feel free to update, delete and remove as needed. All the settings outside of provider private settings are for users benefit to help them make better choices, in Akkeris they also have additional meta data to know how or whether to certain capabilites can be performed on the addon (for example, attaching the addon to multiple apps) but are otherwise just presentation.
-
-Open your favorite postgres client and connect to `$DATABASE_URL` above, ensure you've deployed the database broker before continuing. Each service and plan will be displayed to the user, the plans a provider specific and the column `provider_private_details` has different information depending on the provider for information on what should be in this column see the provider specific settings below. 
-
-**AWS Instance Provider Specific Settings**
-
-Setting the provider specific private settings in the plan is important to do carefully as these settings are whats ACTUALLY created. You can use `${ENV_VAR_NAME}` to fill in any portion of the provider settings with an environment variable. Setting a value to null will request to use the default value from AWS. The description, type and allowed values for each of these types can be found here: https://docs.aws.amazon.com/sdk-for-go/api/service/rds/#CreateDBInstanceInput
-
-Note: the following fields should not be set and will always be overridden (so do not set them in the settings) `Tags`, `DBInstanceIdentifier`, `DBName`, `MasterUserPassword`, `MasterUsername`, `Engine`, `EngineVersion` and `VpcSecurityGroupIds`.  The `VpcSecurityGroupIds` are tied to region and must be set via `AWS_VPC_SECURITY_GROUPS`. In addition `DBClusterIdentifier` should always be null.
-
-***Sample AWS Instance Provider Specific Settings***
-
-In this example 100 gb of storage and a `db.t2.medium` class server are provisioned. All other options use the default AWS settings provided.
-
-```
-{  
-   "AllocatedStorage":100,
-   "AutoMinorVersionUpgrade":null,
-   "AvailabilityZone":null,
-   "BackupRetentionPeriod":null,
-   "CharacterSetName":null,
-   "CopyTagsToSnapshot":null,
-   "DBClusterIdentifier":null,
-   "DBInstanceClass":"db.t2.medium",
-   "DBInstanceIdentifier":null,
-   "DBName":null,
-   "DBParameterGroupName":null,
-   "DBSecurityGroups":null,
-   "DBSubnetGroupName":null,
-   "Domain":null,
-   "DomainIAMRoleName":null,
-   "EnableCloudwatchLogsExports":null,
-   "EnableIAMDatabaseAuthentication":null,
-   "EnablePerformanceInsights":null,
-   "Engine":null,
-   "EngineVersion":null,
-   "Iops":null,
-   "KmsKeyId":null,
-   "LicenseModel":null,
-   "MasterUserPassword":null,
-   "MasterUsername":null,
-   "MonitoringInterval":null,
-   "MonitoringRoleArn":null,
-   "MultiAZ":null,
-   "OptionGroupName":null,
-   "PerformanceInsightsKMSKeyId":null,
-   "PerformanceInsightsRetentionPeriod":null,
-   "Port":null,
-   "PreferredBackupWindow":null,
-   "PreferredMaintenanceWindow":null,
-   "ProcessorFeatures":null,
-   "PromotionTier":null,
-   "PubliclyAccessible":null,
-   "StorageEncrypted":null,
-   "StorageType":null,
-   "Tags":null,
-   "TdeCredentialArn":null,
-   "TdeCredentialPassword":null,
-   "Timezone":null,
-   "VpcSecurityGroupIds":null
-}
-```
-
-**AWS Cluster Specific Settings**
-
-Similar to the AWS Instance specific settings these are the parameters used in calls to both CreateDBClusuter and CreateDBInstance subsequently.  See AWS Instance Specific Settings for more information on what fields are ignored or set automatically for the Instance portion.  For the cluster property (and portion) the fields `DBClusterIdentifier`, `DatabaseName`, `Engine`, `VpcSecurityGroupIds`, `MasterUserPassword`, `MasterUsername` and `Tags` are automatically overwritten, do not set these.  The VPC Security Group Ids are always set by the security groups defined in the environment. 
-
-IMPORTANT: Becareful changing instance settings, most settings should be on the cluster property and are very rarely permitted on the instance settings.
-
-***Sample AWS Cluster Specific Settings***
-
-```
-{  
-   "Instance":{  
-      "AllocatedStorage":null,
-      "AutoMinorVersionUpgrade":null,
-      "AvailabilityZone":null,
-      "BackupRetentionPeriod":null,
-      "CharacterSetName":null,
-      "CopyTagsToSnapshot":null,
-      "DBClusterIdentifier":null,
-      "DBInstanceClass":null,
-      "DBInstanceIdentifier":null,
-      "DBName":null,
-      "DBParameterGroupName":null,
-      "DBSecurityGroups":null,
-      "DBSubnetGroupName":null,
-      "Domain":null,
-      "DomainIAMRoleName":null,
-      "EnableCloudwatchLogsExports":null,
-      "EnableIAMDatabaseAuthentication":null,
-      "EnablePerformanceInsights":null,
-      "Engine":null,
-      "EngineVersion":null,
-      "Iops":null,
-      "KmsKeyId":null,
-      "LicenseModel":null,
-      "MasterUserPassword":null,
-      "MasterUsername":null,
-      "MonitoringInterval":null,
-      "MonitoringRoleArn":null,
-      "MultiAZ":null,
-      "OptionGroupName":null,
-      "PerformanceInsightsKMSKeyId":null,
-      "PerformanceInsightsRetentionPeriod":null,
-      "Port":null,
-      "PreferredBackupWindow":null,
-      "PreferredMaintenanceWindow":null,
-      "ProcessorFeatures":null,
-      "PromotionTier":null,
-      "PubliclyAccessible":null,
-      "StorageEncrypted":null,
-      "StorageType":null,
-      "Tags":null,
-      "TdeCredentialArn":null,
-      "TdeCredentialPassword":null,
-      "Timezone":null,
-      "VpcSecurityGroupIds":null
-   },
-   "Cluster":{  
-      "AvailabilityZones":null,
-      "BacktrackWindow":null,
-      "BackupRetentionPeriod":null,
-      "CharacterSetName":null,
-      "DBClusterIdentifier":null,
-      "DBClusterParameterGroupName":null,
-      "DBSubnetGroupName":null,
-      "DatabaseName":null,
-      "DestinationRegion":null,
-      "EnableCloudwatchLogsExports":null,
-      "EnableIAMDatabaseAuthentication":null,
-      "Engine":null,
-      "EngineMode":null,
-      "EngineVersion":null,
-      "KmsKeyId":null,
-      "MasterUserPassword":null,
-      "MasterUsername":null,
-      "OptionGroupName":null,
-      "Port":null,
-      "PreSignedUrl":null,
-      "PreferredBackupWindow":null,
-      "PreferredMaintenanceWindow":null,
-      "ReplicationSourceIdentifier":null,
-      "ScalingConfiguration":null,
-      "SourceRegion":null,
-      "StorageEncrypted":null,
-      "Tags":null,
-      "VpcSecurityGroupIds":null
-   }
-}
-```
-
-**Postgres Shared Specific Settings**
-
-Sort of self explanatory, the username and password MUST be the master account, otherwise provisioning will fail. 
-
-***Sample Shared Specific Settings***
-
-You can use `${ENV_VAR_NAME}` to fill in any portion of the provider settings with an environment variable.
-
-```
-{
-   "master_username":"username",
-   "master_password":"password",
-   "host":"host",
-   "port":"port",
-   "engine":"postgres",
-   "engine_version":"9.6.6"
-}
-```
-
-For example in the above if you didn't want to store the master password in the database you can retrieve it from an enviornment variable:
-
-```
-{
-   "master_username":"username",
-   "master_password":"${MASTER_SHAREDPG_PASSWORD}",
-   "host":"host",
-   "port":"port",
-   "engine":"postgres",
-   "engine_version":"9.6.6"
-}
-```
+Plans can be created by modifying the database table called "plans". They provide a great way of limiting the scope, capability and offerings to whomever is using the broker. See [docs/PLANS.md](plans) for more information. By default the database-broker will initially load with plans for aws and shared postgres. 
 
 ### 4. Setup Task Worker
 
@@ -256,11 +81,7 @@ You'll need to deploy one or multiple (depending on your load) task workers with
 
 ## Running
 
-As described in the setup instructions you should have two deployments for your application, the first is the API that receives requests, the other is the tasks process.
-
-**Deploying in Kubernetes**
-
-See the `manifests/deployment.yml` for a kubernetes deployments description.
+As described in the setup instructions you should have two deployments for your application, the first is the API that receives requests, the other is the tasks process.  See `start.sh` for the API startup command, see `start-background.sh` for the tasks process startup command. Both of these need the above environment variables in order to run correctly.
 
 **Debugging**
 
@@ -276,5 +97,8 @@ You can optionally pass in the startup options `-logtostderr=1 -stderrthreshold 
 
 `make test`
 
-Note, to run the aws instance and cluster tests `TEST_AWS_CLUSTER` and `TEST_AWS_INSTANCE` must be set to true.
+1. To run the aws instance and cluster tests `TEST_AWS_CLUSTER` and `TEST_AWS_INSTANCE` must be set to true.
+2. To run the shared postgres tests set `TEST_SHARED_POSTGRES` to true (the `DATABASE_URL` will be used as the shared tenant!)
+3. To run the mysql postgres test set `MYSQL_URL` and `TEST_SHARED_MYSQL` to true.
+
 

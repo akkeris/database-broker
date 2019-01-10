@@ -60,14 +60,20 @@ type DatabaseBackupSpec struct {
 	Created  string       `json:"created_at"`
 }
 
+func IsAvailable(status string) bool {
+	return status == "available" ||
+			// gcloud status
+			status == "RUNNABLE"
+}
+
 func IsReady(status string) bool {
 	return status == "available" ||
 		status == "configuring-enhanced-monitoring" ||
 		status == "storage-optimization" ||
 		status == "backing-up" ||
-		status == "performing-tasks" ||
 		// gcloud states
-		status == "RUNNABLE"
+		status == "RUNNABLE" ||
+		status == "UNKNOWN_STATE"
 }
 
 func InProgress(status string) bool {
@@ -75,15 +81,48 @@ func InProgress(status string) bool {
 		status == "rebooting" || status == "moving-to-vpc" ||
 		status == "renaming" || status == "upgrading" || status == "backtracking" ||
 		status == "maintenance" || status == "resetting-master-credentials" ||
-		status == "performing-tasks" ||
-		// gclouud states
+		// gcloud states
 		status == "PENDING_CREATE" || status == "MAINTENANCE"
 
 }
 
-func CanBeDeleted(status string) bool {
+func CanGetBindings(status string) bool {
+	// Should we potentially add upgrading to this list?
+	return  status != "creating" && status != "starting" && 
+			status != "stopping" && status != "stopped" && status != "deleting" &&
+			// gcloud states
+			status != "SUSPENDED" && status != "PENDING_CREATE" && status != "MAINTENANCE" &&
+			status != "FAILED" && status != "UNKNOWN_STATE"
+}
+
+func CanBeModified(status string) bool {
+	// aws states
 	return status != "creating" && status != "starting" && status != "modifying" &&
 		status != "rebooting" && status != "moving-to-vpc" && status != "backing-up" &&
 		status != "renaming" && status != "upgrading" && status != "backtracking" &&
-		status != "maintenance" && status != "resetting-master-credentials"
+		status != "maintenance" && status != "resetting-master-credentials" &&
+		// gcloud states
+		status != "SUSPENDED" && status != "PENDING_CREATE" && status != "MAINTENANCE" &&
+		status != "FAILED" && status != "UNKNOWN_STATE"
 }
+
+func CanBeDeleted(status string) bool {
+	return status != "creating" && status != "starting" &&
+		status != "rebooting" && status != "moving-to-vpc" && status != "backing-up" &&
+		status != "renaming" && status != "upgrading" && status != "backtracking" &&
+		status != "maintenance" && status != "resetting-master-credentials" && 
+		status != "SUSPENDED" && status != "PENDING_CREATE" && status != "MAINTENANCE" &&
+		status != "FAILED" && status != "UNKNOWN_STATE"
+}
+
+/** gcloud settings **/
+// State: The current serving state of the Cloud SQL instance. This can
+    // be one of the following.
+    // RUNNABLE: The instance is running, or is ready to run when
+    // accessed.
+    // SUSPENDED: The instance is not available, for example due to problems
+    // with billing.
+    // PENDING_CREATE: The instance is being created.
+    // MAINTENANCE: The instance is down for maintenance.
+    // FAILED: The instance creation failed.
+    // UNKNOWN_STATE: The state of the instance is unknown.

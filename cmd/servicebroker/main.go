@@ -52,6 +52,7 @@ func init() {
 }
 
 func main() {
+	glog.Infof("Starting\n")
 	if os.Getenv("STACKIMPACT") != "" {
 		stackimpact.Start(stackimpact.Options{
 			AgentKey: os.Getenv("STACKIMPACT"),
@@ -61,6 +62,7 @@ func main() {
 	if err := run(); err != nil && err != context.Canceled && err != context.DeadlineExceeded {
 		glog.Fatalln(err)
 	}
+	glog.Infof("Exiting\n")
 }
 
 func run() error {

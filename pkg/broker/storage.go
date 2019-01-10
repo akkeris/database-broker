@@ -63,16 +63,12 @@ begin
         create domain alpha_numeric as varchar(128) check (value ~ '^[A-z0-9\-]+$');
     end if;
 
-    if not exists (select 1 from pg_type where typname = 'providertype') then
-        create type providertype as enum('aws-instance', 'aws-cluster', 'gcloud-instance', 'postgres-shared');
-    end if;
-
     if not exists (select 1 from pg_type where typname = 'enginetype') then
         create type enginetype as enum('postgres', 'aurora-mysql', 'aurora-postgresql', 'mariadb', 'mysql', 'oracle-ee', 'oracle-se2', 'oracle-se1', 'oracle-se', 'sqlserver-ee', 'sqlserver-se', 'sqlserver-ex', 'sqlserver-web');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'clientdbtype') then
-        create type clientdbtype as enum('postgres', 'mysql', 'mysqlx', 'oracledb', 'mssql');
+        create type clientdbtype as enum('postgres', 'mysql', 'mysqlx', 'oracledb', 'mssql', 'dsn', '');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'cents') then
@@ -81,10 +77,6 @@ begin
 
     if not exists (select 1 from pg_type where typname = 'costunit') then
         create type costunit as enum('year', 'month', 'day', 'hour', 'minute', 'second', 'cycle', 'byte', 'megabyte', 'gigabyte', 'terabyte', 'petabyte', 'op', 'unit');
-    end if;
-
-    if not exists (select 1 from pg_type where typname = 'task_action') then
-        create type task_action as enum('delete', 'resync-from-provider', 'notify-create-service-webhook', 'notify-create-binding-webhook', 'resync-until-available', 'change-providers');
     end if;
 
     if not exists (select 1 from pg_type where typname = 'task_status') then
@@ -132,7 +124,7 @@ begin
         cost_unit costunit not null default 'month',
         attributes json not null,
 
-        provider providertype not null,
+        provider varchar(1024) not null,
         provider_private_details json not null,
 
         installable_inside_private_network bool not null default true,
@@ -202,7 +194,7 @@ begin
     (
         task uuid not null primary key,
         database varchar(1024) references databases("id") not null,
-        action task_action not null,
+        action varchar(1024) not null,
         status task_status not null default 'pending',
         retries int not null default 0,
         metadata text not null default '',
@@ -213,6 +205,24 @@ begin
         finished timestamp with time zone,
         deleted bool not null default false
     );
+    
+    if exists (SELECT NULL 
+              FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE table_name = 'tasks'
+              AND column_name = 'action'
+              and udt_name = 'task_action'
+              and table_schema = 'public') then
+        alter table tasks alter column action TYPE varchar(1024) using action::varchar(1024);
+    end if;
+
+    if exists (SELECT NULL 
+              FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE table_name = 'plans'
+              AND column_name = 'provider'
+              and udt_name = 'providertype'
+              and table_schema = 'public') then
+        alter table plans alter column provider TYPE varchar(1024) using provider::varchar(1024);
+    end if;
 
     drop trigger if exists tasks_updated on tasks;
     create trigger tasks_updated before update on tasks for each row execute procedure mark_updated_column();
@@ -303,6 +313,8 @@ type Storage interface {
 	StartProvisioningTasks() ([]DbEntry, error)
 	NukeInstance(string) error
 	WarnOnUnfinishedTasks()
+    IsRestoring(string) (bool, error)
+    IsUpgrading(string) (bool, error)
 }
 
 type PostgresStorage struct {
@@ -380,6 +392,10 @@ func (b *PostgresStorage) getPlans(subquery string, arg string) ([]ProviderPlan,
 					"state":         state,
 					"attributes":    attributesJson,
 					"updated_at":    updated,
+                    "engine": map[string]string{
+                        "type": engineType,
+                        "version": engineVersion,
+                    },
 				},
 			},
 			Provider:               GetProvidersFromString(provider),
@@ -525,6 +541,18 @@ func (b *PostgresStorage) UpdateRole(dbInstance *DbInstance, username string, pa
     role.Username = username
     role.Password = password
     return role, err
+}
+
+func (b *PostgresStorage) IsUpgrading(dbId string) (bool, error) {
+    var count int64
+    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and (action = 'change-providers' OR action = 'change-plans') and deleted = false and database = $1", dbId).Scan(&count)
+    return count > 0, err
+}
+
+func (b *PostgresStorage) IsRestoring(dbId string) (bool, error) {
+    var count int64
+    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and action = 'restore-database' and deleted = false and database = $1", dbId).Scan(&count)
+    return count > 0, err
 }
 
 func (b *PostgresStorage) HasRole(dbInstance *DbInstance, username string) (int64, error) {
@@ -691,7 +719,7 @@ func (b *PostgresStorage) UpdateTask(Id string, status *string, retries *int64, 
 
 func (b *PostgresStorage) WarnOnUnfinishedTasks() {
 	var amount int
-	err := b.db.QueryRow("select count(*) from tasks where status = 'started' and extract(hours from now() - started) > 24").Scan(&amount)
+	err := b.db.QueryRow("select count(*) from tasks where status = 'started' and extract(hours from now() - started) > 24 and deleted = false").Scan(&amount)
 	if err != nil {
 		glog.Errorf("Unable to select stale tasks: %s\n", err.Error())
 		return

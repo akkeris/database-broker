@@ -13,7 +13,7 @@ build: ## Builds the starter pack
 
 test: ## Runs the tests
 	go get github.com/smartystreets/goconvey
-	go test -timeout 2400s -v $(shell go list ./... | grep -v /vendor/ | grep -v /test/)
+	go test -timeout 2400s -v $(shell go list ./... | grep -v /vendor/ | grep -v /test/) -logtostderr=1 -stderrthreshold 0
 
 coverage: ## Runs the tests
 	go get github.com/smartystreets/goconvey
