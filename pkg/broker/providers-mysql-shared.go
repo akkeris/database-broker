@@ -15,7 +15,7 @@ type MysqlSharedProviderPrivatePlanSettings struct {
 	MasterUri     string `json:"master_uri"`
 	Engine        string `json:"engine"`
 	EngineVersion string `json:"engine_version"`
-	SchemeType	  string `json:"scheme_type"` /* Can be 'dsn', 'uri' */
+	SchemeType    string `json:"scheme_type"` /* Can be 'dsn', 'uri' */
 }
 
 func (psppps MysqlSharedProviderPrivatePlanSettings) MasterHost() string {
@@ -53,14 +53,14 @@ func (psppps MysqlSharedProviderPrivatePlanSettings) GetMasterUriWithDbAsDsn(dbN
 	pass, ok := db.User.Password()
 	if ok == true {
 		return db.User.Username() + ":" + pass + "@tcp(" + db.Hostname() + ":" + port + ")/" + dbName + "?" + db.RawQuery
-	}  else if db.User.Username() != "" {
+	} else if db.User.Username() != "" {
 		return "tcp(" + db.Hostname() + ":" + port + ")/" + dbName + "?" + db.RawQuery
 	} else {
 		return db.User.Username() + "@tcp(" + db.Hostname() + ":" + port + ")/" + dbName + "?" + db.RawQuery
 	}
 }
 
-func  (psppps MysqlSharedProviderPrivatePlanSettings) GetMasterUriAsDsn() string {
+func (psppps MysqlSharedProviderPrivatePlanSettings) GetMasterUriAsDsn() string {
 	return psppps.GetMasterUriWithDbAsDsn("mysql")
 }
 
@@ -170,7 +170,7 @@ func (provider MysqlSharedProvider) Deprovision(dbInstance *DbInstance, takeSnap
 	defer db.Close()
 
 	// Get a list of all read only users
-	rows, err := db.Query(ApplyParamsToStatement("select grantee as role from information_schema.schema_privileges where table_schema = $1 and grantee not like $2", "'" + dbInstance.Name + "'", "'%" + dbInstance.Username + "%'"))
+	rows, err := db.Query(ApplyParamsToStatement("select grantee as role from information_schema.schema_privileges where table_schema = $1 and grantee not like $2", "'"+dbInstance.Name+"'", "'%"+dbInstance.Username+"%'"))
 	if err != nil {
 		return errors.New("Failed to query read only users in role: " + err.Error())
 	}
@@ -186,23 +186,23 @@ func (provider MysqlSharedProvider) Deprovision(dbInstance *DbInstance, takeSnap
 		}
 	}
 	if err := rows.Err(); err != nil {
-		return errors.New("Failed to deprovision database while trying to fetch read only user results: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to deprovision database while trying to fetch read only user results: " + dbInstance.Name + " error: " + err.Error())
 	}
 
 	if _, err = db.Exec("ALTER USER '" + dbInstance.Username + "' WITH MAX_USER_CONNECTIONS 0;"); err != nil {
-		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("SELECT CONCAT('KILL ',id,';') AS run_this FROM information_schema.processlist WHERE user='" + dbInstance.Username + "' AND info = 'SELECT * FROM processlist'"); err != nil {
-		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("REVOKE all privileges, grant option from " + dbInstance.Username); err != nil {
-		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("DROP DATABASE " + dbInstance.Name); err != nil {
-		return errors.New("Failed to drop database shared tenant: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to drop database shared tenant: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("DROP USER " + dbInstance.Username); err != nil {
-		return errors.New("Failed to remove user: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to remove user: " + dbInstance.Name + " error: " + err.Error())
 	}
 	return nil
 }
@@ -293,14 +293,13 @@ func (provider MysqlSharedProvider) RotatePasswordReadOnlyUser(dbInstance *DbIns
 	return RotateMysqlReadOnlyRole(dbInstance, settings.GetMasterUriWithDbAsDsn(dbInstance.Name), role)
 }
 
-
 // Technically the create role functions are used by any provider that implements mysql but we'll place
 // them here, but be aware they're not specific to this provider.
 func CreateMysqlReadOnlyRole(dbInstance *DbInstance, databaseUri string) (DatabaseUrlSpec, error) {
 	if dbInstance.Engine != "mysql" {
 		return DatabaseUrlSpec{}, errors.New("I do not know how to do this on anything other than mysql.")
 	}
-	
+
 	username := "rdo1" + strings.ToLower(RandomString(7))
 	password := RandomString(10)
 
@@ -310,12 +309,12 @@ func CreateMysqlReadOnlyRole(dbInstance *DbInstance, databaseUri string) (Databa
 		return DatabaseUrlSpec{}, err
 	}
 	defer db.Close()
-	
+
 	if _, err = db.Exec("create user '" + username + "'@'%' identified by '" + password + "'"); err != nil {
-		return DatabaseUrlSpec{}, errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+		return DatabaseUrlSpec{}, errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("grant select on " + dbInstance.Name + ".* to '" + username + "'"); err != nil {
-		return DatabaseUrlSpec{}, errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+		return DatabaseUrlSpec{}, errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
 	}
 	return DatabaseUrlSpec{
 		Username: username,
@@ -351,18 +350,18 @@ func DeleteMysqlReadOnlyRole(dbInstance *DbInstance, databaseUri string, role st
 		return err
 	}
 	defer db.Close()
-	
+
 	if _, err = db.Exec("ALTER USER '" + role + "' WITH MAX_USER_CONNECTIONS 0;"); err != nil {
-		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("SELECT CONCAT('KILL ',id,';') AS run_this FROM information_schema.processlist WHERE user='" + role + "' AND info = 'SELECT * FROM processlist'"); err != nil {
-		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("REVOKE all privileges, grant option from " + role); err != nil {
-		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: " + err.Error())
 	}
 	if _, err = db.Exec("DROP USER " + role); err != nil {
-		return errors.New("Failed to remove user: " + dbInstance.Name + " error: "+ err.Error())
+		return errors.New("Failed to remove user: " + dbInstance.Name + " error: " + err.Error())
 	}
 
 	return nil
