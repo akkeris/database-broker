@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"errors"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 )
 
@@ -11,6 +12,7 @@ const (
 	AWSCluster     Providers = "aws-cluster"
 	GCloudInstance Providers = "gcloud-instance"
 	PostgresShared Providers = "postgres-shared"
+	MysqlShared    Providers = "mysql-shared"
 	Unknown        Providers = "unknown"
 )
 
@@ -23,6 +25,8 @@ func GetProvidersFromString(str string) Providers {
 		return GCloudInstance
 	} else if str == "postgres-shared" {
 		return PostgresShared
+	} else if str == "mysql-shared" {
+		return MysqlShared
 	}
 	return Unknown
 }
@@ -63,8 +67,13 @@ func GetProviderByPlan(namePrefix string, plan *ProviderPlan) (Provider, error) 
 		return NewAWSInstanceProvider(namePrefix)
 	} else if plan.Provider == AWSCluster {
 		return NewAWSClusteredProvider(namePrefix)
-	}  else if plan.Provider == GCloudInstance {
+	} else if plan.Provider == GCloudInstance {
 		return NewGCloudInstanceProvider(namePrefix)
+	} else if plan.Provider == MysqlShared {
+		return NewMysqlSharedProvider(namePrefix)
+	} else if plan.Provider == PostgresShared {
+		return NewPostgresSharedProvider(namePrefix)
+	} else {
+		return nil, errors.New("Unable to find provider for plan.")
 	}
-	return NewPostgresSharedProvider(namePrefix)
 }

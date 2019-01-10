@@ -237,8 +237,8 @@ func (b *BusinessLogic) ActionDeleteRole(InstanceID string, vars map[string]stri
 	if err != nil {
 		return nil, NotFound()
 	}
-	if dbInstance.Engine != "postgres" {
-		return nil, ConflictErrorWithMessage("I do not know how to do this on anything other than postgres.")
+	if dbInstance.Engine != "postgres" && dbInstance.Engine != "mysql" {
+		return nil, ConflictErrorWithMessage("I do not know how to do this on anything other than postgres or mysql..")
 	}
 	role := vars["role"]
 
@@ -769,12 +769,16 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 	}
 
 	dbUrl, err := b.storage.GetReplicas(dbInstance)
+	scheme := dbInstance.Scheme + "://"
+	if dbInstance.Scheme == "" {
+		scheme = ""
+	}
 	if err != nil && err.Error() == "sql: no rows in result set" {
 		response := broker.BindResponse{
 			BindResponse: osb.BindResponse{
 				Async: false,
 				Credentials: map[string]interface{}{
-					"DATABASE_URL": dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+					"DATABASE_URL": scheme + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
 				},
 			},
 		}
@@ -784,8 +788,8 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 			BindResponse: osb.BindResponse{
 				Async: false,
 				Credentials: map[string]interface{}{
-					"DATABASE_URL":          dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
-					"DATABASE_READONLY_URL": dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
+					"DATABASE_URL":          scheme + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+					"DATABASE_READONLY_URL": scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
 				},
 			},
 		}
@@ -850,18 +854,22 @@ func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *brok
 	}
 
 	dbUrl, err := b.storage.GetReplicas(dbInstance)
+	scheme := dbInstance.Scheme + "://"
+	if dbInstance.Scheme == "" {
+		scheme = ""
+	}
 	if err != nil && err.Error() == "sql: no rows in result set" {
 		response := osb.GetBindingResponse{
 			Credentials: map[string]interface{}{
-				"DATABASE_URL": dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+				"DATABASE_URL": scheme + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
 			},
 		}
 		return &response, nil
 	} else if err == nil {
 		response := osb.GetBindingResponse{
 			Credentials: map[string]interface{}{
-				"DATABASE_URL":          dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
-				"DATABASE_READONLY_URL": dbInstance.Scheme + "://" + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
+				"DATABASE_URL":          scheme + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
+				"DATABASE_READONLY_URL": scheme + dbUrl.Username + ":" + dbUrl.Password + "@" + dbUrl.Endpoint,
 			},
 		}
 		return &response, nil

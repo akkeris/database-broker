@@ -7,14 +7,15 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"os"
 	"testing"
+	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
 	"database/sql"
 	"fmt"
 	"net/url"
 )
 
-func TestPostgresProvision(t *testing.T) {
-	if os.Getenv("TEST_SHARED_POSTGRES") == "" {
+func TestMysqlProvision(t *testing.T) {
+	if os.Getenv("TEST_SHARED_MYSQL") == "" {
 		return
 	}
 	var logic *BusinessLogic
@@ -22,15 +23,24 @@ func TestPostgresProvision(t *testing.T) {
 	var plan osb.Plan
 	var dbUrl string
 	var instanceId string = RandomString(12)
-	var err error
 	Convey("Given a fresh provisioner.", t, func() {
-		os.Setenv("PG_HOBBY_9_URI", os.Getenv("DATABASE_URL"))
-		os.Setenv("PG_HOBBY_10_URI", os.Getenv("DATABASE_URL"))
-		logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
+		So(os.Getenv("DATABASE_URL"), ShouldNotEqual, "")
+		So(os.Getenv("MYSQL_URL"), ShouldNotEqual, "")
+		testplansdb, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
 		So(err, ShouldBeNil)
-		So(logic, ShouldNotBeNil)
+		Convey("Add test data", func() {
+			_, err := testplansdb.Exec("insert into services (service, name, human_name, description, categories, image, beta, deprecated) values ('11bb60d2-f2bb-64c0-4c8b-111222aabbcc','test-shared-mysql', 'Test Shared MySQL', 'Dedicated and scalable MySQL (aurora) relational SQL database.',   'Data Stores,mysql',    'https://upload.wikimedia.org/wikipedia/en/thumb/6/62/MySQL.svg/1280px-MySQL.svg.png', false, false) ")
+			So(err, ShouldBeNil)
+			_, err = testplansdb.Exec(`insert into plans (plan, service, name, human_name, description, version, type, scheme, categories, cost_cents, preprovision, attributes, provider, provider_private_details) values ('aaaaaaaa-bbcc-dd13-a3fd-d379997932fa', '11bb60d2-f2bb-64c0-4c8b-111222aabbcc', 'shared',  'Shared (10.4)', 'Mysql 5.7 - 1xCPU 1GB Ram 512MB Storage', '5.7', 'mysql', 'mysql', 'Data Stores', 0, 1, '{"compliance":"", "supports_extensions":false, "ram":"1GB",   "database_replicas":false, "database_logs":false, "restartable":false, "row_limits":null, "storage_capacity":"512MB", "data_clips":false, "connection_limit":20,   "high_availability":false,  "rollback":"7 days",  "encryption_at_rest":true, "high_speed_ssd":false, "burstable_performance":true,  "dedicated":false }', 'mysql-shared', '{"master_uri":"${MYSQL_URL}", "engine":"mysql", "engine_version":"5.7", "scheme_type":"dsn"}')`)
+			So(err, ShouldBeNil)
+		})
 
-		Convey("Ensure preprovisioner and storage object on postgres target works", func() {
+		Convey("Ensure preprovisioner and storage object on mysql target works", func() {
+
+			logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
+			So(err, ShouldBeNil)
+			So(logic, ShouldNotBeNil)
+
 			storage, err := InitStorage(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
 			So(err, ShouldBeNil)
 			RunPreprovisionTasks(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"}, "test", storage, 1)
@@ -40,11 +50,11 @@ func TestPostgresProvision(t *testing.T) {
 			So(task, ShouldBeNil)
 			So(err, ShouldNotBeNil)
 
-			entry, err := storage.GetUnclaimedInstance("50660450-61d3-2c13-a3fd-d379997932fa", "my-new-test-instance")
+			entry, err := storage.GetUnclaimedInstance("aaaaaaaa-bbcc-dd13-a3fd-d379997932fa", "my-new-test-instance")
 			So(err, ShouldBeNil)
 
 			So(entry.Id, ShouldEqual, "my-new-test-instance")
-			So(entry.PlanId, ShouldEqual, "50660450-61d3-2c13-a3fd-d379997932fa")
+			So(entry.PlanId, ShouldEqual, "aaaaaaaa-bbcc-dd13-a3fd-d379997932fa")
 			So(entry.Claimed, ShouldEqual, true)
 			So(entry.Status, ShouldEqual, "available")
 
@@ -57,12 +67,18 @@ func TestPostgresProvision(t *testing.T) {
 			catalog, err = logic.GetCatalog(&rc)
 			So(err, ShouldBeNil)
 			So(catalog, ShouldNotBeNil)
-			So(len(catalog.Services), ShouldEqual, 2)
-			//service = catalog.Services[0]
+			So(len(catalog.Services), ShouldEqual, 3)
 
 			var foundHobby = false
-			for _, p := range catalog.Services[0].Plans {
-				if p.Name == "hobby-v9" {
+			var service osb.Service
+			for _, s := range catalog.Services {
+				if s.ID == "11bb60d2-f2bb-64c0-4c8b-111222aabbcc" {
+					service = s
+				}
+			}
+			So(service, ShouldNotBeNil)
+			for _, p := range service.Plans {
+				if p.Name == "shared" && p.ID == "aaaaaaaa-bbcc-dd13-a3fd-d379997932fa" {
 					plan = p
 					foundHobby = true
 				}
@@ -70,7 +86,7 @@ func TestPostgresProvision(t *testing.T) {
 			So(foundHobby, ShouldEqual, true)
 		})
 
-		Convey("Ensure provisioner for shared postrges can provision a database", func() {
+		Convey("Ensure provisioner for shared mysql can provision a database", func() {
 			var request osb.ProvisionRequest
 			var c broker.RequestContext
 			request.AcceptsIncomplete = false
@@ -88,7 +104,9 @@ func TestPostgresProvision(t *testing.T) {
 			request.InstanceID = instanceId
 			request.PlanID = plan.ID
 			res, err = logic.Provision(&request, &c)
-
+			if err != nil {
+				fmt.Println(err.Error())
+			}
 			So(err, ShouldBeNil)
 			So(res, ShouldNotBeNil)
 		})
@@ -107,7 +125,6 @@ func TestPostgresProvision(t *testing.T) {
 			dres, err := logic.Bind(&brequest, &c)
 			So(err, ShouldBeNil)
 			So(dres, ShouldNotBeNil)
-			So(dres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 
 			dbUrl = dres.Credentials["DATABASE_URL"].(string)
 
@@ -115,13 +132,12 @@ func TestPostgresProvision(t *testing.T) {
 			gbres, err := logic.GetBinding(&gbrequest, &c)
 			So(err, ShouldBeNil)
 			So(gbres, ShouldNotBeNil)
-			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, dres.Credentials["DATABASE_URL"].(string))
 
 		})
 
 		Convey("Ensure creation of roles, rotating roles and removing roles successfully works.", func() {
-			db, err := sql.Open("postgres", dbUrl + "?sslmode=disable")
+			db, err := sql.Open("mysql", dbUrl)
 			if err != nil {
 				fmt.Println(err.Error())
 			}
@@ -150,7 +166,6 @@ func TestPostgresProvision(t *testing.T) {
 			}
 			So(err, ShouldBeNil)
 			So(dbFullUrl.User.Username(), ShouldNotEqual, dbReadOnlySpec.Username)
-			So(dbFullUrl.Host + dbFullUrl.Path, ShouldEqual, dbReadOnlySpec.Endpoint)
 
 			resps, err := logic.ActionListRoles(instanceId, map[string]string{}, &c)
 			if err != nil {
@@ -180,10 +195,9 @@ func TestPostgresProvision(t *testing.T) {
 
 			_, err = logic.ActionDeleteRole(instanceId, map[string]string{"role":dbReadOnlySpec.Username}, &c)
 			So(err, ShouldBeNil)
-			// TODO: ensure you cant login
 		})
 
-		Convey("Ensure unbind for shared postgres works", func() {
+		Convey("Ensure unbind for shared mysql works", func() {
 			var c broker.RequestContext
 			var urequest osb.UnbindRequest = osb.UnbindRequest{InstanceID: instanceId, BindingID: "foo"}
 			ures, err := logic.Unbind(&urequest, &c)
@@ -191,7 +205,7 @@ func TestPostgresProvision(t *testing.T) {
 			So(ures, ShouldNotBeNil)
 		})
 
-		Convey("Ensure deprovisioner for shared postgres works", func() {
+		Convey("Ensure deprovisioner for shared mysql works", func() {
 			var request osb.LastOperationRequest = osb.LastOperationRequest{InstanceID: instanceId}
 			var c broker.RequestContext
 			res, err := logic.LastOperation(&request, &c)
@@ -206,7 +220,7 @@ func TestPostgresProvision(t *testing.T) {
 			So(dres, ShouldNotBeNil)
 		})
 
-		Convey("Ensure postgres can be deprovisioned when a user (readonly and service account) are connected", func() {
+		Convey("Ensure mysql can be deprovisioned when a user (readonly and service account) are connected", func() {
 			// create database
 			c := broker.RequestContext{}
 			var request osb.ProvisionRequest
@@ -222,7 +236,6 @@ func TestPostgresProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(dres, ShouldNotBeNil)
 			dbServiceUrl := dres.Credentials["DATABASE_URL"].(string)
-			So(dbServiceUrl, ShouldStartWith, "postgres://")
 
 			// create read only user
 			resp, err := logic.ActionCreateRole(instanceId, map[string]string{}, &c)
@@ -231,10 +244,10 @@ func TestPostgresProvision(t *testing.T) {
 			}
 			So(err, ShouldBeNil)
 			dbReadOnlySpec := resp.(DatabaseUrlSpec)
-			var dbReadonlyUrl = "postgres://" + dbReadOnlySpec.Username + ":" + dbReadOnlySpec.Password + "@" + dbReadOnlySpec.Endpoint
+			var dbReadonlyUrl = dbReadOnlySpec.Username + ":" + dbReadOnlySpec.Password + "@" + dbReadOnlySpec.Endpoint
 
 			// create a connection via both service and read only rolls
-			dbServiceConn, err := sql.Open("postgres", dbServiceUrl + "?sslmode=disable")
+			dbServiceConn, err := sql.Open("mysql", dbServiceUrl)
 			if err != nil {
 				fmt.Println(err.Error())
 			}
@@ -251,8 +264,7 @@ func TestPostgresProvision(t *testing.T) {
 				fmt.Println(err.Error())
 			}
 			So(err, ShouldBeNil)
-
-			dbReadonlyConn, err := sql.Open("postgres", dbReadonlyUrl + "?sslmode=disable")
+			dbReadonlyConn, err := sql.Open("mysql", dbReadonlyUrl)
 			if err != nil {
 				fmt.Println(err.Error())
 			}
@@ -279,18 +291,50 @@ func TestPostgresProvision(t *testing.T) {
 			So(err, ShouldNotBeNil)
 
 			// Ensure we can no longer connect with the read only account or service account.
-			dbServiceConn2, err := sql.Open("postgres", dbServiceUrl + "?sslmode=disable")
+			dbServiceConn2, err := sql.Open("mysql", dbServiceUrl)
 			if err == nil {
 				defer dbServiceConn2.Close()
 				err = dbServiceConn2.Ping()
 			}
 			So(err, ShouldNotBeNil)
-			dbReadonlyConn2, err := sql.Open("postgres", dbReadonlyUrl + "?sslmode=disable")
+			dbReadonlyConn2, err := sql.Open("mysql", dbReadonlyUrl)
 			if err == nil {
 				dbReadonlyConn2.Close()
 				err = dbReadonlyConn2.Ping()
 			}
 			So(err, ShouldNotBeNil)
 		})
+		Convey("Remove test data", func() {
+			_, err := testplansdb.Exec("delete from roles using databases, plans, services where roles.database = databases.id and databases.plan = plans.plan and services.service = plans.service and services.service='11bb60d2-f2bb-64c0-4c8b-111222aabbcc'")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			_, err = testplansdb.Exec("delete from replicas using databases, plans, services where replicas.database = databases.id and databases.plan = plans.plan and services.service = plans.service and services.service='11bb60d2-f2bb-64c0-4c8b-111222aabbcc'")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			_, err = testplansdb.Exec("delete from tasks using databases, plans, services where tasks.database = databases.id and databases.plan = plans.plan and services.service = plans.service and services.service='11bb60d2-f2bb-64c0-4c8b-111222aabbcc'")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			_, err = testplansdb.Exec("delete from databases using services, plans where databases.plan = plans.plan and services.service = plans.service and services.service='11bb60d2-f2bb-64c0-4c8b-111222aabbcc'")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			_, err = testplansdb.Exec("delete from plans using services where services.service = plans.service and services.service='11bb60d2-f2bb-64c0-4c8b-111222aabbcc'")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			_, err = testplansdb.Exec("delete from services where service='11bb60d2-f2bb-64c0-4c8b-111222aabbcc'")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+		})
+
 	})
 }
