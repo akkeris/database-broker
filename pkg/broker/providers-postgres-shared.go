@@ -388,7 +388,6 @@ func DeletePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 	}
 	defer db.Close()
 
-	//_, err = db.Exec(strings.Replace(strings.Replace(strings.Replace(statement, "$1", role, -1), "$2", dbInstance.Name, -1), "$3", dbInstance.Username, -1))
 	_, err = db.Exec(ApplyParamsToStatement(statement, role, dbInstance.Name,  dbInstance.Username))
 	if err != nil {
 		return err
