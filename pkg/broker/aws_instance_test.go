@@ -38,8 +38,6 @@ func TestAwsProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 2)
-			//service = catalog.Services[0]
-			//plan = catalog.Services[0].Plans[2]
 			var foundPremium = false
 			for _, p := range catalog.Services[0].Plans {
 				if p.Name == "premium-0" {
