@@ -606,7 +606,7 @@ func (b *BusinessLogic) Deprovision(request *osb.DeprovisionRequest, c *broker.R
 			return nil, InternalServerError()
 		} else {
 			glog.Errorf("Successfully scheduled db to be removed.")
-			response.Async = false
+			response.Async = true
 			return &response, nil
 		}
 	}
