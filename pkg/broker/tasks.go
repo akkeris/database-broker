@@ -164,6 +164,9 @@ func UpgradeWithinProviders(storage Storage, fromDb *DbInstance, toPlanId string
 
 	// This could take a very long time.
 	dbInstance, err := fromProvider.Modify(fromDb, toPlan)
+	if err.Error() == "This feature is not available on this plan." {
+		return UpgradeAcrossProviders(storage, fromDb, toPlanId, namePrefix)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -196,9 +199,6 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 	}
 	if toPlanId == fromDb.Plan.ID {
 		return "", errors.New("Cannot upgrade to the same plan")
-	}
-	if toPlan.Provider == fromDb.Plan.Provider {
-		return "", errors.New("Unable to upgrade, the same provider was passed in on both plans")
 	}
 	if fromDb.Engine != "postgres" {
 		return "", errors.New("Can only upgrade across providers on postgres")

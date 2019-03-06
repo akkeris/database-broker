@@ -11,15 +11,18 @@ import (
 	"database/sql"
 	"fmt"
 	"net/url"
+	"encoding/json"
 )
 
 func TestPostgresProvision(t *testing.T) {
 	if os.Getenv("TEST_SHARED_POSTGRES") == "" {
 		return
 	}
+	var namePrefix = "test"
 	var logic *BusinessLogic
 	var catalog *broker.CatalogResponse
 	var plan osb.Plan
+	var highPlan osb.Plan
 	var dbUrl string
 	var instanceId string = RandomString(12)
 	var err error
@@ -58,16 +61,24 @@ func TestPostgresProvision(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(catalog, ShouldNotBeNil)
 			So(len(catalog.Services), ShouldEqual, 2)
-			//service = catalog.Services[0]
 
-			var foundHobby = false
+			var foundStandard0 = false
 			for _, p := range catalog.Services[0].Plans {
-				if p.Name == "hobby-v9" {
+				if p.Name == "standard-0-v9" {
 					plan = p
-					foundHobby = true
+					foundStandard0 = true
 				}
 			}
-			So(foundHobby, ShouldEqual, true)
+			So(foundStandard0, ShouldEqual, true)
+
+			var foundStandard1 = false
+			for _, p := range catalog.Services[0].Plans {
+				if p.Name == "standard-1" {
+					highPlan = p
+					foundStandard1 = true
+				}
+			}
+			So(foundStandard1, ShouldEqual, true)
 		})
 
 		Convey("Ensure provisioner for shared postrges can provision a database", func() {
@@ -117,7 +128,6 @@ func TestPostgresProvision(t *testing.T) {
 			So(gbres, ShouldNotBeNil)
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
 			So(gbres.Credentials["DATABASE_URL"].(string), ShouldStartWith, dres.Credentials["DATABASE_URL"].(string))
-
 		})
 
 		Convey("Ensure creation of roles, rotating roles and removing roles successfully works.", func() {
@@ -291,6 +301,97 @@ func TestPostgresProvision(t *testing.T) {
 				err = dbReadonlyConn2.Ping()
 			}
 			So(err, ShouldNotBeNil)
+		})
+
+		Convey("Ensure we can upgrade within providers successfully.", func() {
+			// Reset
+			instanceId = RandomString(12)
+			storage, err := InitStorage(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
+			So(err, ShouldEqual, nil)
+
+			// Ensure we have enough databases
+			RunPreprovisionTasks(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"}, "test", storage, 1)
+			RunPreprovisionTasks(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"}, "test", storage, 1)
+
+			// Obtain a new database
+			var c broker.RequestContext
+			res, err := logic.Provision(&osb.ProvisionRequest{InstanceID:instanceId, AcceptsIncomplete:true, PlanID:plan.ID}, &c)
+			So(err, ShouldBeNil)
+			So(res, ShouldNotBeNil)
+			var guid = "123e4567-e89b-12d3-a456-426655440111"
+			var resource osb.BindResource = osb.BindResource{AppGUID: &guid}
+			var brequest osb.BindRequest = osb.BindRequest{InstanceID: instanceId, BindingID: "foo", BindResource: &resource}
+			dres, err := logic.Bind(&brequest, &c)
+			So(err, ShouldBeNil)
+			So(dres, ShouldNotBeNil)
+			So(dres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
+			var dbUrlFrom = dres.Credentials["DATABASE_URL"].(string)
+
+			// Insert some test data
+			randomData := RandomString(12)
+			db, err := sql.Open("postgres", dbUrlFrom + "?sslmode=disable")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			defer db.Close()
+			_, err = db.Exec("CREATE TABLE mytable (somefield text)")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			_, err = db.Exec("insert into mytable (somefield) values ('" + randomData + "')")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+
+			// Request an upgrade to a plan on the same provider.
+			_, err = logic.Update(&osb.UpdateInstanceRequest{ InstanceID:instanceId, AcceptsIncomplete:true, PlanID:&highPlan.ID}, &c)
+			So(err, ShouldBeNil)
+
+			// Process the upgrade since the background worker isnt running
+			task, err := logic.storage.PopPendingTask()
+			So(err, ShouldBeNil)
+			So(task.Action, ShouldEqual, ChangePlansTask)
+			var taskMetaData ChangePlansTaskMetadata
+			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
+			So(err, ShouldBeNil)
+			err = json.Unmarshal([]byte(task.Metadata), &taskMetaData)
+			So(err, ShouldBeNil)
+			output, err := UpgradeWithinProviders(storage, dbInstance, taskMetaData.Plan, namePrefix)
+			So(err, ShouldBeNil)
+			FinishedTask(storage, task.Id, task.Retries, output, "finished")
+
+			// See if the data is now at the new database url.
+			brequest = osb.BindRequest{InstanceID: instanceId, BindingID: "foo2", BindResource: &resource}
+			dres, err = logic.Bind(&brequest, &c)
+			So(err, ShouldBeNil)
+			So(dres, ShouldNotBeNil)
+			So(dres.Credentials["DATABASE_URL"].(string), ShouldStartWith, "postgres://")
+			var dbUrlTo = dres.Credentials["DATABASE_URL"].(string)
+			So(dbUrlTo, ShouldNotEqual, dbUrlFrom)
+
+			// See if the data correctly propogated into the new database
+			db, err = sql.Open("postgres", dbUrlTo + "?sslmode=disable")
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			defer db.Close()
+			var fromRandomData string = ""
+			err = db.QueryRow("select somefield from mytable").Scan(&fromRandomData)
+			if err != nil {
+				fmt.Println(err.Error())
+			}
+			So(err, ShouldBeNil)
+			So(fromRandomData, ShouldEqual, randomData)
+
+			// Deprovision the database
+			var drequest osb.DeprovisionRequest = osb.DeprovisionRequest{InstanceID: instanceId}
+			dres2, err := logic.Deprovision(&drequest, &c)
+			So(err, ShouldBeNil)
+			So(dres2, ShouldNotBeNil)
 		})
 	})
 }
