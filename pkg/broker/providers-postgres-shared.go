@@ -180,6 +180,9 @@ func (provider PostgresSharedProvider) Deprovision(dbInstance *DbInstance, takeS
 	if err := rows.Err(); err != nil {
 		return errors.New("Failed to deprovision database while trying to fetch read only user results: " + dbInstance.Name + " error: "+ err.Error())
 	}
+	if _, err = db.Exec("ALTER DATABASE " + dbInstance.Name + " OWNER TO CURRENT_USER"); err != nil {
+		return errors.New("Failed to set owner to master account for: " + dbInstance.Name + " error: "+ err.Error())
+	}
 	if _, err = db.Exec("ALTER DATABASE " + dbInstance.Name + " CONNECTION LIMIT 0"); err != nil {
 		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: "+ err.Error())
 	}
