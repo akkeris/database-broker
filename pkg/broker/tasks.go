@@ -274,9 +274,9 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 
 	if err = fromProvider.Deprovision(fromDb, true); err != nil {
 		glog.Errorf("Cannot deprovision existing database during provider change %s %s\n", fromDb.Name, err.Error())
-		if _, err = storage.AddTask(fromDb.Id, DeleteTask, fromDb.Name); err != nil {
-			glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! (%s): %s\n", fromDb.Name, err.Error())
-		}
+		// Do not add this as a task, since the instance id stayed the same and was upgrade it fromDb.Id now
+		// represents the samething as toDb. We can only write out to lthe logs and hope someone picks this up.
+		glog.Errorf("Error: Unable to add task to delete instance, WE HAVE AN ORPHAN! Name: %s, Plan Id: %s, Error: %s\n", fromDb.Name, fromDb.Plan.ID, err.Error())
 	}
 
 	return out.String(), nil
@@ -312,12 +312,12 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
 
 			if err != nil {
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get dbInstance: "+err.Error(), "pending")
 				continue
 			}
 			provider, err := GetProviderByPlan(namePrefix, dbInstance.Plan)
 			if err != nil {
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get provider: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get provider: "+err.Error(), "pending")
 				continue
 			}
 			if err = provider.Deprovision(dbInstance, true); err != nil {
@@ -339,13 +339,13 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
 			if err != nil {
 				glog.Infof("Failed to get provider instance for task: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get dbInstance: "+err.Error(), "pending")
 				continue
 			}
 			dbEntry, err := storage.GetInstance(task.DatabaseId)
 			if err != nil {
 				glog.Infof("Failed to get database instance for task: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get DbEntry: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get DbEntry: "+err.Error(), "pending")
 				continue
 			}
 			if dbInstance.Status != dbEntry.Status {
@@ -370,7 +370,7 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
 			if err != nil {
 				glog.Infof("Failed to get provider instance for task: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get dbInstance: "+err.Error(), "pending")
 				continue
 			}
 			if err = storage.UpdateInstance(dbInstance, dbInstance.Plan.ID); err != nil {
@@ -433,7 +433,7 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 
 			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
 			if err != nil {
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get dbInstance: "+err.Error(), "pending")
 				continue
 			}
 			if !IsAvailable(dbInstance.Status) {
@@ -507,13 +507,13 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			err = json.Unmarshal([]byte(task.Metadata), &taskMetaData)
 			if err != nil {
 				glog.Infof("Cannot unmarshal task metadata to change providers: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot unmarshal task metadata to change providers: "+err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot unmarshal task metadata to change providers: "+err.Error(), "pending")
 				continue
 			}
 			output, err := UpgradeWithinProviders(storage, dbInstance, taskMetaData.Plan, namePrefix)
 			if err != nil {
 				glog.Infof("Cannot change plans for: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot change plans: " + err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot change plans: " + err.Error(), "pending")
 				continue
 			}
 
