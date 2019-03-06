@@ -638,7 +638,7 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 		return nil, UnprocessableEntityWithMessage("ConcurrencyError", "Clients MUST wait until pending requests have completed for the specified resources.")
 	}
 
-	if *request.PlanID == dbInstance.Plan.ID {
+	if strings.ToLower(*request.PlanID) == strings.ToLower(dbInstance.Plan.ID) {
 		return nil, UnprocessableEntityWithMessage("UpgradeError", "Cannot upgrade to the same plan.")
 	}
 
