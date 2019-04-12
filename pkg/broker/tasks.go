@@ -164,7 +164,7 @@ func UpgradeWithinProviders(storage Storage, fromDb *DbInstance, toPlanId string
 
 	// This could take a very long time.
 	dbInstance, err := fromProvider.Modify(fromDb, toPlan)
-	if err.Error() == "This feature is not available on this plan." {
+	if err != nil && err.Error() == "This feature is not available on this plan." {
 		return UpgradeAcrossProviders(storage, fromDb, toPlanId, namePrefix)
 	}
 	if err != nil {

@@ -124,6 +124,9 @@ func (provider PostgresSharedProvider) Provision(Id string, plan *ProviderPlan, 
 	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA public"); err != nil {
 		return nil, errors.New("Cannot create extension uuid-ossp on new db: " + err.Error())
 	}
+	if _, err = udb.Exec("CREATE EXTENSION IF NOT EXISTS \"citext\" WITH SCHEMA public"); err != nil {
+		return nil, errors.New("Cannot create extension citext on new db: " + err.Error())
+	}
 	return &DbInstance{
 		Id:            Id,
 		Name:          db_name,
