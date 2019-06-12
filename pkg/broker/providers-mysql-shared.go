@@ -188,13 +188,6 @@ func (provider MysqlSharedProvider) Deprovision(dbInstance *DbInstance, takeSnap
 	if err := rows.Err(); err != nil {
 		return errors.New("Failed to deprovision database while trying to fetch read only user results: " + dbInstance.Name + " error: " + err.Error())
 	}
-
-	if _, err = db.Exec("ALTER USER '" + dbInstance.Username + "' WITH MAX_USER_CONNECTIONS 0;"); err != nil {
-		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
-	}
-	if _, err = db.Exec("SELECT CONCAT('KILL ',id,';') AS run_this FROM information_schema.processlist WHERE user='" + dbInstance.Username + "' AND info = 'SELECT * FROM processlist'"); err != nil {
-		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
-	}
 	if _, err = db.Exec("REVOKE all privileges, grant option from " + dbInstance.Username); err != nil {
 		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: " + err.Error())
 	}

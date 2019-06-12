@@ -507,6 +507,11 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 		return nil, InternalServerError()
 	}
 
+	// Ensure we are not trying to provision a UUID that has ever been used before.
+	if err := b.storage.ValidateInstanceID(request.InstanceID); err != nil {
+		return nil, UnprocessableEntityWithMessage("InstanceInvalid", "The instance ID was either already in-use or invalid. (" + err.Error() + ")")
+	}
+
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
 
 	if err == nil {
