@@ -32,13 +32,9 @@ func TestMysqlProvision(t *testing.T) {
 		So(logic, ShouldNotBeNil)
 		testplansdb, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
 		So(err, ShouldBeNil)
-		Convey("Add test data", func() {
-			_, err := testplansdb.Exec("insert into services (service, name, human_name, description, categories, image, beta, deprecated) values ('11bb60d2-f2bb-64c0-4c8b-111222aabbcc','test-shared-mysql', 'Test Shared MySQL', 'Dedicated and scalable MySQL (aurora) relational SQL database.',   'Data Stores,mysql',    'https://upload.wikimedia.org/wikipedia/en/thumb/6/62/MySQL.svg/1280px-MySQL.svg.png', false, false) ")
-			So(err, ShouldBeNil)
-			_, err = testplansdb.Exec(`insert into plans (plan, service, name, human_name, description, version, type, scheme, categories, cost_cents, preprovision, attributes, provider, provider_private_details) values ('aaaaaaaa-bbcc-dd13-a3fd-d379997932fa', '11bb60d2-f2bb-64c0-4c8b-111222aabbcc', 'shared',  'Shared (10.4)', 'Mysql 5.7 - 1xCPU 1GB Ram 512MB Storage', '5.7', 'mysql', 'mysql', 'Data Stores', 0, 1, '{"compliance":"", "supports_extensions":false, "ram":"1GB",   "database_replicas":false, "database_logs":false, "restartable":false, "row_limits":null, "storage_capacity":"512MB", "data_clips":false, "connection_limit":20,   "high_availability":false,  "rollback":"7 days",  "encryption_at_rest":true, "high_speed_ssd":false, "burstable_performance":true,  "dedicated":false }', 'mysql-shared', '{"master_uri":"${MYSQL_URL}", "engine":"mysql", "engine_version":"5.7", "scheme_type":"dsn"}')`)
-			So(err, ShouldBeNil)
-		})
-
+		testplansdb.Exec("insert into services (service, name, human_name, description, categories, image, beta, deprecated) values ('11bb60d2-f2bb-64c0-4c8b-111222aabbcc','test-shared-mysql', 'Test Shared MySQL', 'Dedicated and scalable MySQL (aurora) relational SQL database.',   'Data Stores,mysql',    'https://upload.wikimedia.org/wikipedia/en/thumb/6/62/MySQL.svg/1280px-MySQL.svg.png', false, false) ")
+		testplansdb.Exec(`insert into plans (plan, service, name, human_name, description, version, type, scheme, categories, cost_cents, preprovision, attributes, provider, provider_private_details) values ('aaaaaaaa-bbcc-dd13-a3fd-d379997932fa', '11bb60d2-f2bb-64c0-4c8b-111222aabbcc', 'shared',  'Shared (10.4)', 'Mysql 5.7 - 1xCPU 1GB Ram 512MB Storage', '5.7', 'mysql', 'mysql', 'Data Stores', 0, 1, '{"compliance":"", "supports_extensions":false, "ram":"1GB",   "database_replicas":false, "database_logs":false, "restartable":false, "row_limits":null, "storage_capacity":"512MB", "data_clips":false, "connection_limit":20,   "high_availability":false,  "rollback":"7 days",  "encryption_at_rest":true, "high_speed_ssd":false, "burstable_performance":true,  "dedicated":false }', 'mysql-shared', '{"master_uri":"${MYSQL_URL}", "engine":"mysql", "engine_version":"5.7", "scheme_type":"dsn"}')`)
+	
 		Convey("Ensure preprovisioner and storage object on mysql target works", func() {
 
 
