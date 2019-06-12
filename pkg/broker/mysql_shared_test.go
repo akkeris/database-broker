@@ -26,6 +26,10 @@ func TestMysqlProvision(t *testing.T) {
 	Convey("Given a fresh provisioner.", t, func() {
 		So(os.Getenv("DATABASE_URL"), ShouldNotEqual, "")
 		So(os.Getenv("MYSQL_URL"), ShouldNotEqual, "")
+		var err error
+		logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
+		So(err, ShouldBeNil)
+		So(logic, ShouldNotBeNil)
 		testplansdb, err := sql.Open("postgres", os.Getenv("DATABASE_URL"))
 		So(err, ShouldBeNil)
 		Convey("Add test data", func() {
@@ -37,9 +41,6 @@ func TestMysqlProvision(t *testing.T) {
 
 		Convey("Ensure preprovisioner and storage object on mysql target works", func() {
 
-			logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
-			So(err, ShouldBeNil)
-			So(logic, ShouldNotBeNil)
 
 			storage, err := InitStorage(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
 			So(err, ShouldBeNil)
