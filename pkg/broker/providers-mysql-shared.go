@@ -344,12 +344,6 @@ func DeleteMysqlReadOnlyRole(dbInstance *DbInstance, databaseUri string, role st
 	}
 	defer db.Close()
 
-	if _, err = db.Exec("ALTER USER '" + role + "' WITH MAX_USER_CONNECTIONS 0;"); err != nil {
-		return errors.New("Failed to reduce connection limit when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
-	}
-	if _, err = db.Exec("SELECT CONCAT('KILL ',id,';') AS run_this FROM information_schema.processlist WHERE user='" + role + "' AND info = 'SELECT * FROM processlist'"); err != nil {
-		return errors.New("Failed to terminate backends when deprovisioning: " + dbInstance.Name + " error: " + err.Error())
-	}
 	if _, err = db.Exec("REVOKE all privileges, grant option from " + role); err != nil {
 		return errors.New("Failed to revoke access from master user to shared tenant user: " + dbInstance.Name + " error: " + err.Error())
 	}
