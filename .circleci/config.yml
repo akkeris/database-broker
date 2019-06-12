@@ -22,7 +22,7 @@ jobs:
           name: Run tests
           command: |
             apk update --no-progress -q
-            apk add openssl ca-certificates git make build-base nodejs npm docker --no-progress -q
+            apk add openssl ca-certificates git make build-base nodejs npm docker postgresql --no-progress -q
             mkdir -p /go/src/github.com/akkeris/
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd /go/src/github.com/akkeris/database-broker
