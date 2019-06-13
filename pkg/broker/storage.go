@@ -315,6 +315,7 @@ type Storage interface {
 	WarnOnUnfinishedTasks()
     IsRestoring(string) (bool, error)
     IsUpgrading(string) (bool, error)
+    ValidateInstanceID(id string) error
 }
 
 type PostgresStorage struct {
@@ -652,6 +653,23 @@ func (b *PostgresStorage) DeleteInstance(dbInstance *DbInstance) error {
 func (b *PostgresStorage) UpdateInstance(dbInstance *DbInstance, PlanId string) error {
 	_, err := b.db.Exec("update databases set plan = $1, endpoint = $2, status = $3, username = $4, password = $5, name = $6 where id = $7", PlanId, dbInstance.Endpoint, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Name, dbInstance.Id)
 	return err
+}
+
+/* ValidateInstanceID(string)
+   This is used to ensure that the instance ID being requested to be created is a valid
+   instance id that we can use, it can either check to ensure its not already an existing
+   instance or that the id doesn't contain invalid characters.
+*/
+func (b *PostgresStorage) ValidateInstanceID(id string) error {
+    var count int64
+    err := b.db.QueryRow("select count(*) from databases where id = $1", id).Scan(&count)
+    if err != nil {
+        return err
+    }
+    if count != 0 {
+        return errors.New("The instance id is already in use (even if deleted)")
+    }
+    return nil
 }
 
 func (b *PostgresStorage) StartProvisioningTasks() ([]DbEntry, error) {
