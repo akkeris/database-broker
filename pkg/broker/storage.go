@@ -655,6 +655,11 @@ func (b *PostgresStorage) UpdateInstance(dbInstance *DbInstance, PlanId string) 
 	return err
 }
 
+/* ValidateInstanceID(string)
+   This is used to ensure that the instance ID being requested to be created is a valid
+   instance id that we can use, it can either check to ensure its not already an existing
+   instance or that the id doesn't contain invalid characters.
+*/
 func (b *PostgresStorage) ValidateInstanceID(id string) error {
     var count int64
     err := b.db.QueryRow("select count(*) from databases where id = $1", id).Scan(&count)
