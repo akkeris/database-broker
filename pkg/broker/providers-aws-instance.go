@@ -745,8 +745,8 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 	}
 
 	return &DbInstance{
-		Id:            dbInstance.Name + "-ro",
-		Name:          dbInstance.Name,
+		Id:            dbInstance.Id,
+		Name:          dbInstance.Name + "-ro",
 		ProviderId:    *resp.DBInstance.DBInstanceArn,
 		Plan:          dbInstance.Plan,
 		Username:      *resp.DBInstance.MasterUsername,
@@ -773,7 +773,7 @@ func (provider AWSInstanceProvider) GetReadReplica(dbInstance *DbInstance) (*DbI
 func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) error {
 	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
 		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
-		SkipFinalSnapshot:    aws.Bool(false),
+		SkipFinalSnapshot:    aws.Bool(true),
 	})
 	return err
 }

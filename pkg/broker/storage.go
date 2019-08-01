@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"github.com/golang/glog"
 	_ "github.com/lib/pq"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
@@ -293,6 +294,7 @@ type Storage interface {
 	GetReplicas(*DbInstance) (DatabaseUrlSpec, error)
 	HasReplicas(*DbInstance) (int64, error)
 	AddReplica(*DbInstance) error
+	UpdateReplica(*DbInstance) error
 	DeleteReplica(*DbInstance) error
 	ListRoles(*DbInstance) ([]DatabaseUrlSpec, error)
 	GetRole(*DbInstance, string) (DatabaseUrlSpec, error)
@@ -313,9 +315,9 @@ type Storage interface {
 	StartProvisioningTasks() ([]DbEntry, error)
 	NukeInstance(string) error
 	WarnOnUnfinishedTasks()
-    IsRestoring(string) (bool, error)
-    IsUpgrading(string) (bool, error)
-    ValidateInstanceID(id string) error
+	IsRestoring(string) (bool, error)
+	IsUpgrading(string) (bool, error)
+	ValidateInstanceID(id string) error
 }
 
 type PostgresStorage struct {
@@ -393,10 +395,10 @@ func (b *PostgresStorage) getPlans(subquery string, arg string) ([]ProviderPlan,
 					"state":         state,
 					"attributes":    attributesJson,
 					"updated_at":    updated,
-                    "engine": map[string]string{
-                        "type": engineType,
-                        "version": engineVersion,
-                    },
+					"engine": map[string]string{
+						"type":    engineType,
+						"version": engineVersion,
+					},
 				},
 			},
 			Provider:               GetProvidersFromString(provider),
@@ -486,12 +488,18 @@ func (b *PostgresStorage) HasReplicas(dbInstance *DbInstance) (int64, error) {
 }
 
 func (b *PostgresStorage) AddReplica(dbInstance *DbInstance) error {
-	_, err := b.db.Exec("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), $1, $2, $3, true, $4, false, '', now(), $5, $6, $7)", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
+	fmt.Printf("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), %s, %s, %s, %s, %s, %s)\n", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
+	_, err := b.db.Exec("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), $1, $2, $3, $4, $5, $6)", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
+	return err
+}
+
+func (b *PostgresStorage) UpdateReplica(dbInstance *DbInstance) error {
+	_, err := b.db.Exec("update replicas set status = $1, username = $2, password = $3, endpoint = $4, updated = now() where database = $5 and deleted = false", dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint, dbInstance.Id)
 	return err
 }
 
 func (b *PostgresStorage) DeleteReplica(dbInstance *DbInstance) error {
-	_, err := b.db.Exec("update replicas set deleted = true where id = $1", dbInstance.Id)
+	_, err := b.db.Exec("update replicas set deleted = true where name = $1", dbInstance.Name)
 	return err
 }
 
@@ -522,38 +530,38 @@ func (b *PostgresStorage) GetRole(dbInstance *DbInstance, r string) (DatabaseUrl
 
 func (b *PostgresStorage) AddRole(dbInstance *DbInstance, username string, password string) (DatabaseUrlSpec, error) {
 	_, err := b.db.Exec("insert into roles (database, username, password, read_only) values ($1, $2, $3, $4)", dbInstance.Id, username, password, true)
-    if err != nil {
-        return DatabaseUrlSpec{}, err
-    }
-    var role DatabaseUrlSpec
-    role.Endpoint = dbInstance.Endpoint
-    role.Username = username
-    role.Password = password
+	if err != nil {
+		return DatabaseUrlSpec{}, err
+	}
+	var role DatabaseUrlSpec
+	role.Endpoint = dbInstance.Endpoint
+	role.Username = username
+	role.Password = password
 	return role, err
 }
 
 func (b *PostgresStorage) UpdateRole(dbInstance *DbInstance, username string, password string) (DatabaseUrlSpec, error) {
 	_, err := b.db.Exec("update roles set password=$3 where database = $1 and username = $2", dbInstance.Id, username, password)
 	if err != nil {
-        return DatabaseUrlSpec{}, err
-    }
-    var role DatabaseUrlSpec
-    role.Endpoint = dbInstance.Endpoint
-    role.Username = username
-    role.Password = password
-    return role, err
+		return DatabaseUrlSpec{}, err
+	}
+	var role DatabaseUrlSpec
+	role.Endpoint = dbInstance.Endpoint
+	role.Username = username
+	role.Password = password
+	return role, err
 }
 
 func (b *PostgresStorage) IsUpgrading(dbId string) (bool, error) {
-    var count int64
-    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and (action = 'change-providers' OR action = 'change-plans') and deleted = false and database = $1", dbId).Scan(&count)
-    return count > 0, err
+	var count int64
+	err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and (action = 'change-providers' OR action = 'change-plans') and deleted = false and database = $1", dbId).Scan(&count)
+	return count > 0, err
 }
 
 func (b *PostgresStorage) IsRestoring(dbId string) (bool, error) {
-    var count int64
-    err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and action = 'restore-database' and deleted = false and database = $1", dbId).Scan(&count)
-    return count > 0, err
+	var count int64
+	err := b.db.QueryRow("select count(*) from tasks where ( status = 'started' or status = 'pending' ) and action = 'restore-database' and deleted = false and database = $1", dbId).Scan(&count)
+	return count > 0, err
 }
 
 func (b *PostgresStorage) HasRole(dbInstance *DbInstance, username string) (int64, error) {
@@ -607,7 +615,7 @@ func (b *PostgresStorage) GetUnclaimedInstance(PlanId string, InstanceId string)
 		return nil, err
 	}
 
-    entry.Claimed = true
+	entry.Claimed = true
 	entry.Id = InstanceId
 
 	if err = tx.Commit(); err != nil {
@@ -661,15 +669,15 @@ func (b *PostgresStorage) UpdateInstance(dbInstance *DbInstance, PlanId string) 
    instance or that the id doesn't contain invalid characters.
 */
 func (b *PostgresStorage) ValidateInstanceID(id string) error {
-    var count int64
-    err := b.db.QueryRow("select count(*) from databases where id = $1", id).Scan(&count)
-    if err != nil {
-        return err
-    }
-    if count != 0 {
-        return errors.New("The instance id is already in use (even if deleted)")
-    }
-    return nil
+	var count int64
+	err := b.db.QueryRow("select count(*) from databases where id = $1", id).Scan(&count)
+	if err != nil {
+		return err
+	}
+	if count != 0 {
+		return errors.New("The instance id is already in use (even if deleted)")
+	}
+	return nil
 }
 
 func (b *PostgresStorage) StartProvisioningTasks() ([]DbEntry, error) {
