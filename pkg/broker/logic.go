@@ -497,13 +497,13 @@ func GetReplicaById(namePrefix string, storage Storage, Id string) (*DbInstance,
 	}
 
 	//Makes assumption db master and replica users/passwords are the same
-	//TODO make replica use unique passwords
+	//TODO make replica use unique passwords, use replica id (why do we have replica ids if we never use them?)
 	replica.Id = entry.Id
+	replica.Plan = plan
 	replica.Username = entry.Username
 	replica.Password = entry.Password
-	replica.Plan = plan
 
-	return dbInstance, nil
+	return replica, nil
 }
 
 func (b *BusinessLogic) GetInstanceById(Id string) (*DbInstance, error) {
