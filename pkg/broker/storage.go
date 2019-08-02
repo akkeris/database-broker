@@ -5,7 +5,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/golang/glog"
 	_ "github.com/lib/pq"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
@@ -488,7 +487,6 @@ func (b *PostgresStorage) HasReplicas(dbInstance *DbInstance) (int64, error) {
 }
 
 func (b *PostgresStorage) AddReplica(dbInstance *DbInstance) error {
-	fmt.Printf("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), %s, %s, %s, %s, %s, %s)\n", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
 	_, err := b.db.Exec("insert into replicas (id, database, name, status, username, password, endpoint) values (uuid_generate_v4(), $1, $2, $3, $4, $5, $6)", dbInstance.Id, dbInstance.Name, dbInstance.Status, dbInstance.Username, dbInstance.Password, dbInstance.Endpoint)
 	return err
 }
@@ -499,7 +497,7 @@ func (b *PostgresStorage) UpdateReplica(dbInstance *DbInstance) error {
 }
 
 func (b *PostgresStorage) DeleteReplica(dbInstance *DbInstance) error {
-	_, err := b.db.Exec("update replicas set deleted = true where name = $1", dbInstance.Name)
+	_, err := b.db.Exec("update replicas set deleted = true where name = $1 and deleted = false", dbInstance.Name)
 	return err
 }
 
