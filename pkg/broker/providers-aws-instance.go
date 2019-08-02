@@ -3,15 +3,15 @@ package broker
 import (
 	"encoding/json"
 	"errors"
-	"github.com/golang/glog"
+	"fmt"
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/rds"
+	"github.com/golang/glog"
 	"os"
 	"strconv"
 	"strings"
 	"time"
-	"fmt"
 )
 
 type AWSInstanceProvider struct {
@@ -19,7 +19,7 @@ type AWSInstanceProvider struct {
 	awssvc              *rds.RDS
 	namePrefix          string
 	awsVpcSecurityGroup string
-	instanceCache 		map[string]*DbInstance
+	instanceCache       map[string]*DbInstance
 }
 
 func NewAWSInstanceProvider(namePrefix string) (*AWSInstanceProvider, error) {
@@ -32,7 +32,7 @@ func NewAWSInstanceProvider(namePrefix string) (*AWSInstanceProvider, error) {
 	t := time.NewTicker(time.Second * 5)
 	awsInstanceProvider := &AWSInstanceProvider{
 		namePrefix:          namePrefix,
-		instanceCache:		 make(map[string]*DbInstance),
+		instanceCache:       make(map[string]*DbInstance),
 		awsVpcSecurityGroup: os.Getenv("AWS_VPC_SECURITY_GROUPS"),
 		awssvc:              rds.New(session.New(&aws.Config{Region: aws.String(os.Getenv("AWS_REGION"))})),
 	}
@@ -46,8 +46,8 @@ func NewAWSInstanceProvider(namePrefix string) (*AWSInstanceProvider, error) {
 }
 
 func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan) (*DbInstance, error) {
-	if provider.instanceCache[name + plan.ID] != nil {
-		return provider.instanceCache[name + plan.ID], nil
+	if provider.instanceCache[name+plan.ID] != nil {
+		return provider.instanceCache[name+plan.ID], nil
 	}
 	resp, err := provider.awssvc.DescribeDBInstances(&rds.DescribeDBInstancesInput{
 		DBInstanceIdentifier: aws.String(name),
@@ -60,7 +60,7 @@ func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan)
 	if resp.DBInstances[0].Endpoint != nil && resp.DBInstances[0].Endpoint.Port != nil && resp.DBInstances[0].Endpoint.Address != nil {
 		endpoint = *resp.DBInstances[0].Endpoint.Address + ":" + strconv.FormatInt(*resp.DBInstances[0].Endpoint.Port, 10) + "/" + name
 	}
-	provider.instanceCache[name + plan.ID] = &DbInstance{
+	provider.instanceCache[name+plan.ID] = &DbInstance{
 		Id:            "", // providers should not store this.
 		ProviderId:    *resp.DBInstances[0].DBInstanceArn,
 		Name:          name,
@@ -75,7 +75,7 @@ func (provider AWSInstanceProvider) GetInstance(name string, plan *ProviderPlan)
 		Scheme:        plan.Scheme,
 	}
 
-	return provider.instanceCache[name + plan.ID], nil
+	return provider.instanceCache[name+plan.ID], nil
 }
 
 func (provider AWSInstanceProvider) PerformPostProvision(db *DbInstance) (*DbInstance, error) {
@@ -108,7 +108,6 @@ func (provider AWSInstanceProvider) ProvisionWithSettings(Id string, plan *Provi
 		Scheme:        plan.Scheme,
 	}, nil
 }
-
 
 func (provider AWSInstanceProvider) Provision(Id string, plan *ProviderPlan, Owner string) (*DbInstance, error) {
 	var settings rds.CreateDBInstanceInput
@@ -145,8 +144,8 @@ func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnap
 		})
 	} else {
 		_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-			DBInstanceIdentifier:      aws.String(dbInstance.Name),
-			SkipFinalSnapshot:         aws.Bool(true),
+			DBInstanceIdentifier: aws.String(dbInstance.Name),
+			SkipFinalSnapshot:    aws.Bool(true),
 		})
 	}
 	return err
@@ -154,8 +153,8 @@ func (provider AWSInstanceProvider) Deprovision(dbInstance *DbInstance, takeSnap
 
 func (provider AWSInstanceProvider) upgradePlan(dbInstance *DbInstance, proposed string) ([]string, error) {
 	proposedVersion := strings.Split(proposed, ".")
-	currentVersion  := strings.Split(dbInstance.EngineVersion, ".")
-	
+	currentVersion := strings.Split(dbInstance.EngineVersion, ".")
+
 	if len(proposedVersion) == 0 {
 		return nil, errors.New("No major version found.")
 	}
@@ -199,33 +198,33 @@ func (provider AWSInstanceProvider) upgradePlan(dbInstance *DbInstance, proposed
 				return nil, err
 			}
 		}
-		if  (currentMajor > proposedMajor) || 
-			(currentMajor == proposedMajor && currentMinor > proposedMinor) || 
+		if (currentMajor > proposedMajor) ||
+			(currentMajor == proposedMajor && currentMinor > proposedMinor) ||
 			(currentMajor == proposedMajor && currentMinor == proposedMinor && currentPatch >= proposedPatch) {
-				break
+			break
 		}
 
 		devres, err := provider.awssvc.DescribeDBEngineVersions(&rds.DescribeDBEngineVersionsInput{
-			MaxRecords:aws.Int64(100),
-			Engine:aws.String(dbInstance.Engine),
-			EngineVersion:aws.String(strings.Join(currentVersion, ".")),
+			MaxRecords:    aws.Int64(100),
+			Engine:        aws.String(dbInstance.Engine),
+			EngineVersion: aws.String(strings.Join(currentVersion, ".")),
 		})
 		if err != nil {
 			return nil, err
 		}
 
-		// If there are no targets, c'est la vie. 
+		// If there are no targets, c'est la vie.
 		if len(devres.DBEngineVersions) == 0 || len(devres.DBEngineVersions[0].ValidUpgradeTarget) == 0 {
 			return nil, errors.New("Unable to find a valid upgrade path from " + dbInstance.EngineVersion + " to " + proposed)
 		}
-		
+
 		// If the target does not have a version, c'est la vie
-		if devres.DBEngineVersions[0].ValidUpgradeTarget[len(devres.DBEngineVersions[0].ValidUpgradeTarget) - 1].EngineVersion == nil {
+		if devres.DBEngineVersions[0].ValidUpgradeTarget[len(devres.DBEngineVersions[0].ValidUpgradeTarget)-1].EngineVersion == nil {
 			return nil, errors.New("Odd, Engine Version was null, unable to upgrade.")
 		}
 
 		// We may be stuck in a loop if we keep proposing ourself.
-		nextMaxVersion := *devres.DBEngineVersions[0].ValidUpgradeTarget[len(devres.DBEngineVersions[0].ValidUpgradeTarget) - 1].EngineVersion
+		nextMaxVersion := *devres.DBEngineVersions[0].ValidUpgradeTarget[len(devres.DBEngineVersions[0].ValidUpgradeTarget)-1].EngineVersion
 		if nextMaxVersion == strings.Join(currentVersion, ".") {
 			return nil, errors.New("Odd, we keep getting ourselves as the next upgrade path.")
 		}
@@ -268,22 +267,22 @@ func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, propo
 	// Begin the upgrades.
 	for _, version := range versions {
 		err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
-			DBInstanceIdentifier: 	aws.String(dbInstance.Name),
-			MaxRecords:				aws.Int64(20),
+			DBInstanceIdentifier: aws.String(dbInstance.Name),
+			MaxRecords:           aws.Int64(20),
 		})
 		if err != nil {
 			return nil, err
 		}
 
-		// We want to prefer the database parameter group that was specified by the 
+		// We want to prefer the database parameter group that was specified by the
 		// configuration but during the upgrade process we may have to go through a
 		// different parameter group (if non default) in order to to reach the target
-		// parameter group of the plan. 
+		// parameter group of the plan.
 
 		devres, err := provider.awssvc.DescribeDBEngineVersions(&rds.DescribeDBEngineVersionsInput{
-			MaxRecords:aws.Int64(100),
-			Engine:aws.String(dbInstance.Engine),
-			EngineVersion:aws.String(version),
+			MaxRecords:    aws.Int64(100),
+			Engine:        aws.String(dbInstance.Engine),
+			EngineVersion: aws.String(version),
 		})
 		if err != nil {
 			return nil, err
@@ -298,13 +297,13 @@ func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, propo
 		}
 
 		var dbParameterGroup *string = nil
-				
+
 		// Use the preferred one if AWS says it's available, and if it was specified in the plan.
 		if settings.DBParameterGroupName != nil && *settings.DBParameterGroupName != "" {
 			for _, group := range groups.DBParameterGroups {
 				if group.DBParameterGroupName != nil && *group.DBParameterGroupName == *settings.DBParameterGroupName {
 					dbParameterGroup = settings.DBParameterGroupName
-				} 
+				}
 			}
 		}
 
@@ -312,7 +311,7 @@ func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, propo
 		// the versions parmaeter group family.
 		if dbParameterGroup == nil {
 			for _, group := range groups.DBParameterGroups {
-				if group.DBParameterGroupName != nil && group.DBParameterGroupFamily != nil && devres.DBEngineVersions[0].DBParameterGroupFamily != nil && *group.DBParameterGroupFamily == *devres.DBEngineVersions[0].DBParameterGroupFamily && *group.DBParameterGroupName == ("default." + (*group.DBParameterGroupFamily)) {
+				if group.DBParameterGroupName != nil && group.DBParameterGroupFamily != nil && devres.DBEngineVersions[0].DBParameterGroupFamily != nil && *group.DBParameterGroupFamily == *devres.DBEngineVersions[0].DBParameterGroupFamily && *group.DBParameterGroupName == ("default."+(*group.DBParameterGroupFamily)) {
 					dbParameterGroup = group.DBParameterGroupName
 				}
 			}
@@ -332,11 +331,11 @@ func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, propo
 			glog.Infof("Database: %s upgrading to %s %s with no specified parameter group.\n", dbInstance.Id, dbInstance.Engine, dbInstance.EngineVersion)
 		}
 		_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
-			AllowMajorVersionUpgrade:aws.Bool(true),
-			EngineVersion:           aws.String(version),
-			ApplyImmediately:        aws.Bool(true),
-			DBInstanceIdentifier:    aws.String(dbInstance.Name),
-			DBParameterGroupName:    dbParameterGroup,
+			AllowMajorVersionUpgrade: aws.Bool(true),
+			EngineVersion:            aws.String(version),
+			ApplyImmediately:         aws.Bool(true),
+			DBInstanceIdentifier:     aws.String(dbInstance.Name),
+			DBParameterGroupName:     dbParameterGroup,
 		})
 		if err != nil {
 			return nil, err
@@ -347,8 +346,8 @@ func (provider AWSInstanceProvider) UpgradeVersion(dbInstance *DbInstance, propo
 		<-tick.C
 	}
 	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
-		DBInstanceIdentifier: 	aws.String(dbInstance.Name),
-		MaxRecords:				aws.Int64(20),
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		MaxRecords:           aws.Int64(20),
 	})
 	if err != nil {
 		return nil, err
@@ -438,7 +437,7 @@ func (provider AWSInstanceProvider) Modify(dbInstance *DbInstance, plan *Provide
 		return nil, err
 	}
 
-	var oldSettings rds.CreateDBInstanceInput 
+	var oldSettings rds.CreateDBInstanceInput
 	if err := json.Unmarshal([]byte(dbInstance.Plan.providerPrivateDetails), &oldSettings); err != nil {
 		return nil, err
 	}
@@ -589,58 +588,58 @@ func (provider AWSInstanceProvider) RestoreBackup(dbInstance *DbInstance, Id str
 	renamedId := dbInstance.Name + "-restore-" + RandomString(5)
 
 	_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
-			ApplyImmediately: 			aws.Bool(true),
-			DBInstanceIdentifier: 		aws.String(dbInstance.Name), 
-			NewDBInstanceIdentifier: 	aws.String(renamedId),
+		ApplyImmediately:        aws.Bool(true),
+		DBInstanceIdentifier:    aws.String(dbInstance.Name),
+		NewDBInstanceIdentifier: aws.String(renamedId),
 	})
 	if err != nil {
 		return err
 	}
 
 	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
-		DBInstanceIdentifier: 	aws.String(renamedId),
-		MaxRecords:				aws.Int64(20),
+		DBInstanceIdentifier: aws.String(renamedId),
+		MaxRecords:           aws.Int64(20),
 	})
 	if err != nil {
 		return err
 	}
 	_, err = provider.awssvc.RestoreDBInstanceFromDBSnapshot(&rds.RestoreDBInstanceFromDBSnapshotInput{
-		DBInstanceIdentifier:			aws.String(dbInstance.Name),
-		DBSnapshotIdentifier:			aws.String(Id),
-		DBSubnetGroupName:				settings.DBSubnetGroupName,
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		DBSnapshotIdentifier: aws.String(Id),
+		DBSubnetGroupName:    settings.DBSubnetGroupName,
 	})
 
 	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
-		DBInstanceIdentifier: 	aws.String(dbInstance.Name),
-		MaxRecords:				aws.Int64(20),
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		MaxRecords:           aws.Int64(20),
 	})
 	if err != nil {
 		return err
 	}
 
-	// The restored instance does not have the same security groups, nor is there a way 
-	// of specifying the security groups when restoring the database on the previous call, 
+	// The restored instance does not have the same security groups, nor is there a way
+	// of specifying the security groups when restoring the database on the previous call,
 	// so we have to modify the newly created restore.
 	_, err = provider.awssvc.ModifyDBInstance(&rds.ModifyDBInstanceInput{
-		ApplyImmediately: 			aws.Bool(true),
-		DBInstanceIdentifier: 		aws.String(dbInstance.Name), 
-		VpcSecurityGroupIds:		dbSecurityGroups,
-		DBParameterGroupName:		settings.DBParameterGroupName,
+		ApplyImmediately:     aws.Bool(true),
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		VpcSecurityGroupIds:  dbSecurityGroups,
+		DBParameterGroupName: settings.DBParameterGroupName,
 	})
 	if err != nil {
 		return err
 	}
 
 	err = provider.awssvc.WaitUntilDBInstanceAvailable(&rds.DescribeDBInstancesInput{
-		DBInstanceIdentifier: 	aws.String(dbInstance.Name),
-		MaxRecords:				aws.Int64(20),
+		DBInstanceIdentifier: aws.String(dbInstance.Name),
+		MaxRecords:           aws.Int64(20),
 	})
 	if err != nil {
 		fmt.Printf("Unable to clean up database that should be removed after restoring (WaitUntilDBInstanceAvailable): %s %s\n", renamedId, err.Error())
 	}
 	_, err = provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier:      aws.String(renamedId),
-		SkipFinalSnapshot:         aws.Bool(true),
+		DBInstanceIdentifier: aws.String(renamedId),
+		SkipFinalSnapshot:    aws.Bool(true),
 	})
 	if err != nil {
 		fmt.Printf("ERROR: Orphaned Database! Unable to clean up database that should be removed after restoring (DeleteDBInstance): %s %s\n", renamedId, err.Error())
@@ -722,7 +721,6 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 		Port:                        settings.Port,
 		CopyTagsToSnapshot:          settings.CopyTagsToSnapshot,
 		KmsKeyId:                    settings.KmsKeyId,
-		DBSubnetGroupName:           settings.DBSubnetGroupName,
 		StorageType:                 settings.StorageType,
 		Iops:                        settings.Iops,
 		Tags: []*rds.Tag{
@@ -760,8 +758,8 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 	}
 
 	return &DbInstance{
-		Id:            dbInstance.Name + "-ro",
-		Name:          dbInstance.Name,
+		Id:            dbInstance.Id,
+		Name:          dbInstance.Name + "-ro",
 		ProviderId:    *resp.DBInstance.DBInstanceArn,
 		Plan:          dbInstance.Plan,
 		Username:      *resp.DBInstance.MasterUsername,
@@ -787,8 +785,8 @@ func (provider AWSInstanceProvider) GetReadReplica(dbInstance *DbInstance) (*DbI
 
 func (provider AWSInstanceProvider) DeleteReadReplica(dbInstance *DbInstance) error {
 	_, err := provider.awssvc.DeleteDBInstance(&rds.DeleteDBInstanceInput{
-		DBInstanceIdentifier: aws.String(dbInstance.Name+"-ro"),
-		SkipFinalSnapshot:    aws.Bool(false),
+		DBInstanceIdentifier: aws.String(dbInstance.Name + "-ro"),
+		SkipFinalSnapshot:    aws.Bool(true),
 	})
 	return err
 }
@@ -797,19 +795,19 @@ func (provider AWSInstanceProvider) CreateReadOnlyUser(dbInstance *DbInstance) (
 	if !dbInstance.Ready {
 		return DatabaseUrlSpec{}, errors.New("Cannot create user on database that is unavailable.")
 	}
-	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint)
+	return CreatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme+"://"+dbInstance.Username+":"+dbInstance.Password+"@"+dbInstance.Endpoint)
 }
 
 func (provider AWSInstanceProvider) DeleteReadOnlyUser(dbInstance *DbInstance, role string) error {
 	if !dbInstance.Ready {
 		return errors.New("Cannot delete user on database that is unavailable.")
 	}
-	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint, role)
+	return DeletePostgresReadOnlyRole(dbInstance, dbInstance.Scheme+"://"+dbInstance.Username+":"+dbInstance.Password+"@"+dbInstance.Endpoint, role)
 }
 
 func (provider AWSInstanceProvider) RotatePasswordReadOnlyUser(dbInstance *DbInstance, role string) (DatabaseUrlSpec, error) {
 	if !dbInstance.Ready {
 		return DatabaseUrlSpec{}, errors.New("Cannot rotate password on database that is unavailable.")
 	}
-	return RotatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme + "://" + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint, role)
+	return RotatePostgresReadOnlyRole(dbInstance, dbInstance.Scheme+"://"+dbInstance.Username+":"+dbInstance.Password+"@"+dbInstance.Endpoint, role)
 }

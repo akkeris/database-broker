@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/golang/glog"
-	"time"
-	"sort"
-	"strings"
 	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"github.com/pmorie/osb-broker-lib/pkg/broker"
+	"sort"
+	"strings"
+	"time"
 )
 
 type BusinessLogic struct {
@@ -115,6 +115,12 @@ func (b *BusinessLogic) ActionCreateReplica(InstanceID string, vars map[string]s
 		return nil, InternalServerError()
 	}
 
+	if !IsAvailable(newDbInstance.Status) {
+		if _, err = b.storage.AddTask(newDbInstance.Id, ResyncReplicasFromProviderTask, ""); err != nil {
+			glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", newDbInstance.Name, err.Error())
+		}
+	}
+
 	return DatabaseUrlSpec{
 		Username: newDbInstance.Username,
 		Password: newDbInstance.Password,
@@ -135,7 +141,7 @@ func (b *BusinessLogic) ActionDeleteReplica(InstanceID string, vars map[string]s
 
 	readDbReplica, err := provider.GetReadReplica(dbInstance)
 
-	if err = provider.DeleteReadReplica(readDbReplica); err != nil {
+	if err = provider.DeleteReadReplica(dbInstance); err != nil {
 		glog.Errorf("Unable to delete read replica on db, CreateReadReplica failed: %s\n", err.Error())
 		return nil, InternalServerError()
 	}
@@ -309,8 +315,8 @@ func (b *BusinessLogic) ActionGetLogs(InstanceID string, vars map[string]string,
 
 type databaseLogsArray []DatabaseLogs
 
-func (v databaseLogsArray) Len() int           { return len(v) }
-func (v databaseLogsArray) Swap(i, j int)      { v[i], v[j] = v[j], v[i] }
+func (v databaseLogsArray) Len() int      { return len(v) }
+func (v databaseLogsArray) Swap(i, j int) { v[i], v[j] = v[j], v[i] }
 func (v databaseLogsArray) Less(i, j int) bool {
 	a, err := time.Parse(time.RFC3339, v[i].Updated)
 	if err != nil {
@@ -323,7 +329,6 @@ func (v databaseLogsArray) Less(i, j int) bool {
 	return a.After(b)
 }
 
-
 func (b *BusinessLogic) ActionViewLogs(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
 	logsInt, err := b.ActionListLogs(InstanceID, vars, context)
 	if err != nil {
@@ -332,15 +337,15 @@ func (b *BusinessLogic) ActionViewLogs(InstanceID string, vars map[string]string
 	logs := logsInt.([]DatabaseLogs)
 	sort.Sort(databaseLogsArray(logs))
 	if len(logs) == 0 {
-		return map[string]interface{}{"logs":""}, nil
+		return map[string]interface{}{"logs": ""}, nil
 	}
 	logpath := strings.Split(*logs[0].Name, "/")
-	logsDataInt, err := b.ActionGetLogs(InstanceID, map[string]string{"dir":logpath[0], "file":logpath[1]}, context)
+	logsDataInt, err := b.ActionGetLogs(InstanceID, map[string]string{"dir": logpath[0], "file": logpath[1]}, context)
 	if err != nil {
 		return nil, err
 	}
 	logdata := logsDataInt.(string)
-	return map[string]interface{}{"logs":logdata}, nil
+	return map[string]interface{}{"logs": logdata}, nil
 }
 
 func (b *BusinessLogic) ActionRestart(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
@@ -365,7 +370,7 @@ func (b *BusinessLogic) ActionRestoreBackup(InstanceID string, vars map[string]s
 	if err != nil {
 		return nil, NotFound()
 	}
-	byteData, err := json.Marshal(RestoreDbTaskMetadata{Backup:vars["backup"]})
+	byteData, err := json.Marshal(RestoreDbTaskMetadata{Backup: vars["backup"]})
 	if err != nil {
 		glog.Errorf("Error: failed to marshal webhook task metadata: %s\n", err)
 		return nil, InternalServerError()
@@ -382,7 +387,7 @@ func (b *BusinessLogic) ActionCreateBackup(InstanceID string, vars map[string]st
 	if err != nil {
 		return nil, NotFound()
 	}
-	if(!CanBeModified(dbInstance.Status)) {
+	if !CanBeModified(dbInstance.Status) {
 		return nil, UnprocessableEntityWithMessage("ServiceNotYetAvailable", "A backup cannot be created while this service is under maintenance.")
 	}
 	provider, err := GetProviderByPlan(b.namePrefix, dbInstance.Plan)
@@ -465,6 +470,42 @@ func GetInstanceById(namePrefix string, storage Storage, Id string) (*DbInstance
 	return dbInstance, nil
 }
 
+func GetReplicaById(namePrefix string, storage Storage, Id string) (*DbInstance, error) {
+	entry, err := storage.GetInstance(Id)
+	if err != nil {
+		return nil, err
+	}
+
+	plan, err := storage.GetPlanByID(entry.PlanId)
+	if err != nil {
+		return nil, err
+	}
+
+	provider, err := GetProviderByPlan(namePrefix, plan)
+	if err != nil {
+		return nil, err
+	}
+
+	dbInstance, err := provider.GetInstance(entry.Name, plan)
+	if err != nil {
+		return nil, err
+	}
+
+	replica, err := provider.GetReadReplica(dbInstance)
+	if err != nil {
+		return nil, err
+	}
+
+	//Makes assumption db master and replica users/passwords are the same
+	//TODO make replica use unique passwords, use replica id (why do we have replica ids if we never use them?)
+	replica.Id = entry.Id
+	replica.Plan = plan
+	replica.Username = entry.Username
+	replica.Password = entry.Password
+
+	return replica, nil
+}
+
 func (b *BusinessLogic) GetInstanceById(Id string) (*DbInstance, error) {
 	return GetInstanceById(b.namePrefix, b.storage, Id)
 }
@@ -509,7 +550,7 @@ func (b *BusinessLogic) Provision(request *osb.ProvisionRequest, c *broker.Reque
 
 	// Ensure we are not trying to provision a UUID that has ever been used before.
 	if err := b.storage.ValidateInstanceID(request.InstanceID); err != nil {
-		return nil, UnprocessableEntityWithMessage("InstanceInvalid", "The instance ID was either already in-use or invalid. (" + err.Error() + ")")
+		return nil, UnprocessableEntityWithMessage("InstanceInvalid", "The instance ID was either already in-use or invalid. ("+err.Error()+")")
 	}
 
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
@@ -604,6 +645,25 @@ func (b *BusinessLogic) Deprovision(request *osb.DeprovisionRequest, c *broker.R
 		return nil, InternalServerError()
 	}
 
+	replicas, err := b.storage.HasReplicas(dbInstance)
+	if err != nil {
+		glog.Errorf("Unable to get replica count: %s \n", err.Error())
+		return nil, InternalServerError()
+	}
+	if replicas > 0 {
+		if provider.DeleteReadReplica(dbInstance); err != nil {
+			glog.Errorf("Error failed to remove replica: (Id: %s Name: %s) %s\n", dbInstance.Id, dbInstance.Name, err.Error())
+			if _, err = b.storage.AddTask(dbInstance.Id, DeleteTask, dbInstance.Name); err != nil {
+				glog.Errorf("Error: Unable to schedule delete from provider! (%s): %s\n", dbInstance.Name, err.Error())
+				return nil, InternalServerError()
+			} else {
+				glog.Errorf("Successfully scheduled replica and db to be removed.")
+				response.Async = true
+				return &response, nil
+			}
+		}
+
+	}
 	if err = provider.Deprovision(dbInstance, true); err != nil {
 		glog.Errorf("Error failed to deprovision: (Id: %s Name: %s) %s\n", dbInstance.Id, dbInstance.Name, err.Error())
 		if _, err = b.storage.AddTask(dbInstance.Id, DeleteTask, dbInstance.Name); err != nil {
@@ -655,7 +715,7 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 
 	// If the user has requested to upgrade across providers
 	if dbInstance.Plan.Provider != target_plan.Provider && dbInstance.Engine == "postgres" {
-		byteData, err := json.Marshal(ChangeProvidersTaskMetadata{Plan:*request.PlanID})
+		byteData, err := json.Marshal(ChangeProvidersTaskMetadata{Plan: *request.PlanID})
 		if err != nil {
 			glog.Errorf("Unable to marshal change provider task meta data: %s\n", err.Error())
 			return nil, err
@@ -669,7 +729,7 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 	} else if dbInstance.Plan.Provider != target_plan.Provider && dbInstance.Engine != "postgres" {
 		return nil, UnprocessableEntityWithMessage("UpgradeError", "Cannot upgrade across providers for non-postgres databases.")
 	} else {
-		byteData, err := json.Marshal(ChangePlansTaskMetadata{Plan:*request.PlanID})
+		byteData, err := json.Marshal(ChangePlansTaskMetadata{Plan: *request.PlanID})
 		if err != nil {
 			glog.Errorf("Unable to marshal change plans task meta data: %s\n", err.Error())
 			return nil, err
@@ -685,16 +745,16 @@ func (b *BusinessLogic) Update(request *osb.UpdateInstanceRequest, c *broker.Req
 
 func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *broker.RequestContext) (*broker.LastOperationResponse, error) {
 	response := broker.LastOperationResponse{}
-	
+
 	upgrading, err := b.storage.IsUpgrading(request.InstanceID)
 	if err != nil {
-		glog.Errorf("Unable to get database (%s) status, IsUpgrading failed: %s\n", request.InstanceID, err.Error()) 
+		glog.Errorf("Unable to get database (%s) status, IsUpgrading failed: %s\n", request.InstanceID, err.Error())
 		return nil, InternalServerError()
 	}
 
 	restoring, err := b.storage.IsRestoring(request.InstanceID)
 	if err != nil {
-		glog.Errorf("Unable to get database (%s) status, IsRestoring failed: %s\n", request.InstanceID, err.Error()) 
+		glog.Errorf("Unable to get database (%s) status, IsRestoring failed: %s\n", request.InstanceID, err.Error())
 		return nil, InternalServerError()
 	}
 
@@ -707,7 +767,7 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 		response.Description = &desc
 		response.State = osb.StateInProgress
 		return &response, nil
-	} else if restoring {		
+	} else if restoring {
 		desc := "restoring"
 		dbInstance, err := b.GetInstanceById(request.InstanceID)
 		if err == nil && !IsAvailable(dbInstance.Status) {
@@ -716,17 +776,16 @@ func (b *BusinessLogic) LastOperation(request *osb.LastOperationRequest, c *brok
 		response.Description = &desc
 		response.State = osb.StateInProgress
 		return &response, nil
-	}  
-
+	}
 
 	dbInstance, err := b.GetInstanceById(request.InstanceID)
 	if err != nil && err.Error() == "Cannot find database instance" {
 		return nil, NotFound()
 	} else if err != nil {
-		glog.Errorf("Unable to get database (%s) status: %s\n", request.InstanceID, err.Error()) 
+		glog.Errorf("Unable to get database (%s) status: %s\n", request.InstanceID, err.Error())
 		return nil, InternalServerError()
 	}
-	
+
 	b.storage.UpdateInstance(dbInstance, dbInstance.Plan.ID)
 
 	if dbInstance.Ready == true {
@@ -778,7 +837,7 @@ func (b *BusinessLogic) Bind(request *osb.BindRequest, c *broker.RequestContext)
 	if dbInstance.Scheme == "" {
 		scheme = ""
 	}
-	if err != nil && err.Error() == "sql: no rows in result set" {
+	if err != nil && err.Error() == "sql: no rows in result set" || dbUrl.Endpoint == "" {
 		response := broker.BindResponse{
 			BindResponse: osb.BindResponse{
 				Async: false,
@@ -863,7 +922,7 @@ func (b *BusinessLogic) GetBinding(request *osb.GetBindingRequest, context *brok
 	if dbInstance.Scheme == "" {
 		scheme = ""
 	}
-	if err != nil && err.Error() == "sql: no rows in result set" {
+	if err != nil && err.Error() == "sql: no rows in result set" || dbUrl.Endpoint == "" {
 		response := osb.GetBindingResponse{
 			Credentials: map[string]interface{}{
 				"DATABASE_URL": scheme + dbInstance.Username + ":" + dbInstance.Password + "@" + dbInstance.Endpoint,
