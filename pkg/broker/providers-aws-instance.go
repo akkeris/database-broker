@@ -723,8 +723,6 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 		CopyTagsToSnapshot:          settings.CopyTagsToSnapshot,
 		KmsKeyId:                    settings.KmsKeyId,
 		DBSubnetGroupName:           settings.DBSubnetGroupName,
-		EnablePerformanceInsights:   settings.EnablePerformanceInsights,
-		PerformanceInsightsKMSKeyId: settings.KmsKeyId,
 		StorageType:                 settings.StorageType,
 		Iops:                        settings.Iops,
 		Tags: []*rds.Tag{
@@ -734,6 +732,22 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 			},
 		},
 	}
+
+	if settings.EnablePerformanceInsights != nil && *settings.EnablePerformanceInsights == true {
+		rdsInstance.EnablePerformanceInsights = aws.Bool(true)
+		if settings.KmsKeyId != nil {
+			rdsInstance.PerformanceInsightsKMSKeyId = settings.KmsKeyId
+		}
+	} else if settings.EnablePerformanceInsights != nil && *settings.EnablePerformanceInsights == false {
+		rdsInstance.EnablePerformanceInsights = aws.Bool(false)
+		rdsInstance.PerformanceInsightsKMSKeyId = nil
+		rdsInstance.PerformanceInsightsRetentionPeriod = nil
+	} else {
+		rdsInstance.EnablePerformanceInsights = nil
+		rdsInstance.PerformanceInsightsKMSKeyId = nil
+		rdsInstance.PerformanceInsightsRetentionPeriod = nil
+	}
+		
 
 	resp, err := provider.awssvc.CreateDBInstanceReadReplica(&rdsInstance)
 	if err != nil {
