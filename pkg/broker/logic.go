@@ -502,6 +502,9 @@ func GetReplicaById(namePrefix string, storage Storage, Id string) (*DbInstance,
 	replica.Plan = plan
 	replica.Username = entry.Username
 	replica.Password = entry.Password
+	if strings.HasSuffix(replica.Endpoint, "-ro") {
+		replica.Endpoint = strings.TrimSuffix(replica.Endpoint, "-ro") //TODO FIX ME
+	}
 
 	return replica, nil
 }
