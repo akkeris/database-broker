@@ -24,10 +24,11 @@ const (
 	ResyncFromProviderUntilAvailableTask TaskAction = "resync-until-available"
 	NotifyCreateServiceWebhookTask       TaskAction = "notify-create-service-webhook"
 	NotifyCreateBindingWebhookTask       TaskAction = "notify-create-binding-webhook"
-	ChangeProvidersTask					 TaskAction = "change-providers"
-	ChangePlansTask						 TaskAction = "change-plans"
-	RestoreDbTask						 TaskAction = "restore-database"
-	PerformPostProvisionTask			 TaskAction = "perform-post-provision"
+	ChangeProvidersTask                  TaskAction = "change-providers"
+	ChangePlansTask                      TaskAction = "change-plans"
+	RestoreDbTask                        TaskAction = "restore-database"
+	PerformPostProvisionTask             TaskAction = "perform-post-provision"
+	ResyncReplicasFromProviderTask       TaskAction = "resync-replicas-from-provider-task"
 )
 
 type Task struct {
@@ -133,7 +134,7 @@ func TickTocPreprovisionTasks(ctx context.Context, o Options, namePrefix string,
 	}
 }
 
-func RestoreBackup(storage Storage, dbInstance *DbInstance, namePrefix string, backup string) (error) {
+func RestoreBackup(storage Storage, dbInstance *DbInstance, namePrefix string, backup string) error {
 	provider, err := GetProviderByPlan(namePrefix, dbInstance.Plan)
 	if err != nil {
 		glog.Errorf("Unable to restore backup, cannot find provider (GetProviderByPlan failed): %s\n", err.Error())
@@ -211,7 +212,7 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 
 	var toDb *DbInstance = nil
 	t := time.NewTicker(time.Second * 30)
-	for i:=0; i < 60; i++ {
+	for i := 0; i < 60; i++ {
 		toDb, err = toProvider.GetInstance(origToDb.Name, origToDb.Plan)
 		if err != nil {
 			glog.Errorf("Unable to get instance of db %s because %s\n", origToDb.Name, err.Error())
@@ -233,7 +234,7 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 			return "", errors.New("The database provisioning never finished.")
 		}
 		if IsAvailable(toDb.Status) {
-			break;
+			break
 		}
 		<-t.C
 	}
@@ -254,7 +255,7 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 	}
 	targetUrl := toDb.Scheme + "://" + toDb.Username + ":" + toDb.Password + "@" + toDb.Endpoint
 
-	cmd := exec.Command("sh", "-c", "PGPASSWORD=\"" + fromDb.Password + "\" pg_dump -xOc -d " + fromDb.Name + " -h " + v[0] + extras + " -U " + fromDb.Username + " | psql " + targetUrl)
+	cmd := exec.Command("sh", "-c", "PGPASSWORD=\""+fromDb.Password+"\" pg_dump -xOc -d "+fromDb.Name+" -h "+v[0]+extras+" -U "+fromDb.Username+" | psql "+targetUrl)
 	var out bytes.Buffer
 	cmd.Stderr = &out
 	if err = cmd.Run(); err != nil {
@@ -320,6 +321,17 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get provider: "+err.Error(), "pending")
 				continue
 			}
+			replicas, err := storage.HasReplicas(dbInstance)
+			if err != nil {
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to check for replicas: "+err.Error(), "pending")
+				continue
+			}
+			if replicas > 0 {
+				if err = provider.DeleteReadReplica(dbInstance); err != nil {
+					UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to remove replicas: "+err.Error(), "pending")
+					continue
+				}
+			}
 			if err = provider.Deprovision(dbInstance, true); err != nil {
 				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to deprovision: "+err.Error(), "pending")
 				continue
@@ -379,7 +391,31 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			}
 			if !IsAvailable(dbInstance.Status) {
 				glog.Infof("Status did not change at provider for task: %s\n", task.Id)
-				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check (" + dbInstance.Status + ")", "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check ("+dbInstance.Status+")", "pending")
+				continue
+			}
+			FinishedTask(storage, task.Id, task.Retries, "", "finished")
+		} else if task.Action == ResyncReplicasFromProviderTask {
+			glog.Infof("Resyncing from provider until available for replica: %s\n", task.Id)
+			if task.Retries >= 60 {
+				glog.Infof("Retry limit was reached for task: %s %d\n", task.Id, task.Retries)
+				FinishedTask(storage, task.Id, task.Retries, "Unable to resync information from provider for replica "+task.DatabaseId+" as it failed multiple times ("+task.Result+")", "failed")
+				continue
+			}
+			dbInstance, err := GetReplicaById(namePrefix, storage, task.DatabaseId)
+			if err != nil {
+				glog.Infof("Failed to get provider instance for task: %s, %s\n", task.Id, err.Error())
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot get dbInstance: "+err.Error(), "pending")
+				continue
+			}
+			if err = storage.UpdateReplica(dbInstance); err != nil {
+				glog.Infof("Failed to update replica in database for task: %s, %s\n", task.Id, err.Error())
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot update replica: "+err.Error(), "pending")
+				continue
+			}
+			if !IsAvailable(dbInstance.Status) {
+				glog.Infof("Status did not change at provider for task: %s\n", task.Id)
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check ("+dbInstance.Status+")", "pending")
 				continue
 			}
 			FinishedTask(storage, task.Id, task.Retries, "", "finished")
@@ -402,19 +438,19 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			}
 			if !IsAvailable(dbInstance.Status) {
 				glog.Infof("Status did not change at provider for task: %s\n", task.Id)
-				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check (" + dbInstance.Status + ")", "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "No change in status since last check ("+dbInstance.Status+")", "pending")
 				continue
 			}
 
 			provider, err := GetProviderByPlan(namePrefix, dbInstance.Plan)
 			if err != nil {
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get provider: " + err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get provider: "+err.Error(), "pending")
 				continue
 			}
 
 			newDbInstance, err := provider.PerformPostProvision(dbInstance)
 			if err != nil {
-				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to update instance: " + err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Failed to update instance: "+err.Error(), "pending")
 				continue
 			}
 
@@ -513,7 +549,7 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			output, err := UpgradeWithinProviders(storage, dbInstance, taskMetaData.Plan, namePrefix)
 			if err != nil {
 				glog.Infof("Cannot change plans for: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot change plans: " + err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries+1, "Cannot change plans: "+err.Error(), "pending")
 				continue
 			}
 
@@ -540,7 +576,7 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			}
 			if err = RestoreBackup(storage, dbInstance, namePrefix, taskMetaData.Backup); err != nil {
 				glog.Infof("Cannot restore backups for: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot restore backup: " + err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot restore backup: "+err.Error(), "pending")
 				continue
 			}
 
@@ -555,7 +591,7 @@ func RunWorkerTasks(ctx context.Context, o Options, namePrefix string, storage S
 			dbInstance, err := GetInstanceById(namePrefix, storage, task.DatabaseId)
 			if err != nil {
 				glog.Infof("Failed to get provider instance for task: %s, %s\n", task.Id, err.Error())
-				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: " + err.Error(), "pending")
+				UpdateTaskStatus(storage, task.Id, task.Retries, "Cannot get dbInstance: "+err.Error(), "pending")
 				continue
 			}
 			var taskMetaData ChangeProvidersTaskMetadata
