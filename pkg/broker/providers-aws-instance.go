@@ -712,18 +712,15 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 	}
 
 	rdsInstance := rds.CreateDBInstanceReadReplicaInput{
-		DBInstanceClass:            settings.DBInstanceClass,
-		SourceDBInstanceIdentifier: aws.String(dbInstance.Name),
-		DBInstanceIdentifier:       aws.String(dbInstance.Name + "-ro"),
-		AutoMinorVersionUpgrade:    settings.AutoMinorVersionUpgrade,
-		MultiAZ:                    settings.MultiAZ,
-		PubliclyAccessible:         settings.PubliclyAccessible,
-		Port:                       settings.Port,
-		CopyTagsToSnapshot:         settings.CopyTagsToSnapshot,
-		KmsKeyId:                   settings.KmsKeyId,
-		// DBSubnetGroupName:           settings.DBSubnetGroupName, //Not allowed if master is in same region
-		EnablePerformanceInsights:   settings.EnablePerformanceInsights,
-		PerformanceInsightsKMSKeyId: settings.KmsKeyId,
+		DBInstanceClass:             settings.DBInstanceClass,
+		SourceDBInstanceIdentifier:  aws.String(dbInstance.Name),
+		DBInstanceIdentifier:        aws.String(dbInstance.Name + "-ro"),
+		AutoMinorVersionUpgrade:     settings.AutoMinorVersionUpgrade,
+		MultiAZ:                     settings.MultiAZ,
+		PubliclyAccessible:          settings.PubliclyAccessible,
+		Port:                        settings.Port,
+		CopyTagsToSnapshot:          settings.CopyTagsToSnapshot,
+		KmsKeyId:                    settings.KmsKeyId,
 		StorageType:                 settings.StorageType,
 		Iops:                        settings.Iops,
 		Tags: []*rds.Tag{
@@ -733,6 +730,22 @@ func (provider AWSInstanceProvider) CreateReadReplica(dbInstance *DbInstance) (*
 			},
 		},
 	}
+
+	if settings.EnablePerformanceInsights != nil && *settings.EnablePerformanceInsights == true {
+		rdsInstance.EnablePerformanceInsights = aws.Bool(true)
+		if settings.KmsKeyId != nil {
+			rdsInstance.PerformanceInsightsKMSKeyId = settings.KmsKeyId
+		}
+	} else if settings.EnablePerformanceInsights != nil && *settings.EnablePerformanceInsights == false {
+		rdsInstance.EnablePerformanceInsights = aws.Bool(false)
+		rdsInstance.PerformanceInsightsKMSKeyId = nil
+		rdsInstance.PerformanceInsightsRetentionPeriod = nil
+	} else {
+		rdsInstance.EnablePerformanceInsights = nil
+		rdsInstance.PerformanceInsightsKMSKeyId = nil
+		rdsInstance.PerformanceInsightsRetentionPeriod = nil
+	}
+		
 
 	resp, err := provider.awssvc.CreateDBInstanceReadReplica(&rdsInstance)
 	if err != nil {
