@@ -74,7 +74,7 @@ func HttpWrite(w http.ResponseWriter, status int, obj interface{}) {
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(200)
+	w.WriteHeader(status)
 	w.Write(data)
 }
 
