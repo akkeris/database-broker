@@ -5,14 +5,15 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"github.com/golang/glog"
-	_ "github.com/lib/pq"
-	osb "github.com/pmorie/go-open-service-broker-client/v2"
 	"os"
 	"os/signal"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/golang/glog"
+	_ "github.com/lib/pq"
+	osb "github.com/pmorie/go-open-service-broker-client/v2"
 )
 
 const plansQuery string = `
@@ -268,7 +269,24 @@ begin
         values 
             ('bb660450-61d3-1c13-a3fd-d3799979322a', '11bb60d2-f2bb-64c0-4c8b-ead731a690be', 'premium-0',     'Premium-0 MySQL (5.7)', 'MySQL 5.7 - 2xCPU 4GB Ram 20GB Storage',    '5.7',  'mysql',    'mysql',    'Data Stores', 6000,  0, '{"compliance":"", "supports_extensions":true,  "ram":"2GB",   "database_replicas":false, "database_logs":true, "restartable":true,  "row_limits":null, "storage_capacity":"20GB", "data_clips":false, "connection_limit":null,   "high_availability":false,  "rollback":"14 days",  "encryption_at_rest":true, "high_speed_ssd":true, "burstable_performance":false,  "dedicated":true }', 'aws-cluster',   '{"Instance":{"AllocatedStorage":null,"AutoMinorVersionUpgrade":null,"AvailabilityZone":null,"BackupRetentionPeriod":null,"CharacterSetName":null,"CopyTagsToSnapshot":null,"DBClusterIdentifier":null,"DBInstanceClass":"db.r3.large","DBInstanceIdentifier":null,"DBName":null,"DBParameterGroupName":null,"DBSecurityGroups":null,"DBSubnetGroupName":"rds-auroramysql-subnet-group-ds1","Domain":null,"DomainIAMRoleName":null,"EnableCloudwatchLogsExports":null,"EnableIAMDatabaseAuthentication":null,"EnablePerformanceInsights":null,"Engine":"aurora-mysql","EngineVersion":null,"Iops":null,"KmsKeyId":null,"LicenseModel":null,"MasterUserPassword":null,"MasterUsername":null,"MonitoringInterval":null,"MonitoringRoleArn":null,"MultiAZ":false,"OptionGroupName":null,"PerformanceInsightsKMSKeyId":null,"PerformanceInsightsRetentionPeriod":null,"Port":null,"PreferredBackupWindow":null,"PreferredMaintenanceWindow":null,"ProcessorFeatures":null,"PromotionTier":null,"PubliclyAccessible":false,"StorageEncrypted":true,"StorageType":null,"Tags":null,"TdeCredentialArn":null,"TdeCredentialPassword":null,"Timezone":null,"VpcSecurityGroupIds":null},"Cluster":{"AvailabilityZones":null,"BacktrackWindow":null,"BackupRetentionPeriod":14,"CharacterSetName":null,"DBClusterIdentifier":null,"DBClusterParameterGroupName":null,"DBSubnetGroupName":"rds-auroramysql-subnet-group-ds1","DatabaseName":null,"DestinationRegion":null,"EnableCloudwatchLogsExports":null,"EnableIAMDatabaseAuthentication":null,"Engine":"aurora-mysql","EngineMode":null,"EngineVersion":null,"KmsKeyId":null,"MasterUserPassword":null,"MasterUsername":null,"OptionGroupName":null,"Port":null,"PreSignedUrl":null,"PreferredBackupWindow":null,"PreferredMaintenanceWindow":null,"ReplicationSourceIdentifier":null,"ScalingConfiguration":null,"SourceRegion":null,"StorageEncrypted":true,"Tags":null,"VpcSecurityGroupIds":null}}');
             
-    end if;
+		end if;
+		
+		-- add AWS postgres T3 plans (if not present)
+
+		if (select count(*) from plans where plan = '80bf8ed1-4268-49cc-acf8-148be11eda41') = 0 then
+			insert into plans
+				(plan, service, name, human_name, description, version, type, scheme, categories, cost_cents, preprovision, attributes, provider, provider_private_details)
+			values
+				('80bf8ed1-4268-49cc-acf8-148be11eda41', '01bb60d2-f2bb-64c0-4c8b-ead731a690bd', 'premium-t3-0-v9', 'Premium-T3-0 (9.6)', 'Postgres 9.6.9 - 2xCPU 2GB Ram 20GB Storage (T3 Instance)', '9.5.2', 'postgres', 'postgres', 'Data Stores', 2000,  0, '{"compliance":"", "supports_extensions":true,  "ram":"2GB",   "database_replicas":true,  "database_logs":true,  "restartable":true,  "row_limits":null, "storage_capacity":"20GB",  "data_clips":true,  "connection_limit":null, "high_availability":false,  "rollback":"14 days", "encryption_at_rest":true, "high_speed_ssd":true,  "burstable_performance":false, "dedicated":true  }', 'aws-instance',    '{"AllocatedStorage":20,"AutoMinorVersionUpgrade":true,"AvailabilityZone":null,"BackupRetentionPeriod":14,"CharacterSetName":null,"CopyTagsToSnapshot":true,"DBClusterIdentifier":null,"DBInstanceClass":"db.t3.small","DBInstanceIdentifier":null,"DBName":null,"DBParameterGroupName":null,"DBSecurityGroups":null,"DBSubnetGroupName":"rds-postgres-subnet-group","Domain":null,"DomainIAMRoleName":null,"EnableCloudwatchLogsExports":null,"EnableIAMDatabaseAuthentication":null,"EnablePerformanceInsights":false,"Engine":"postgres","EngineVersion":"9.6.9","Iops":null,"KmsKeyId":null,"LicenseModel":null,"MasterUserPassword":null,"MasterUsername":null,"MonitoringInterval":null,"MonitoringRoleArn":null,"MultiAZ":false,"OptionGroupName":null,"PerformanceInsightsKMSKeyId":null,"PerformanceInsightsRetentionPeriod":null,"Port":null,"PreferredBackupWindow":null,"PreferredMaintenanceWindow":null,"ProcessorFeatures":null,"PromotionTier":null,"PubliclyAccessible":false,"StorageEncrypted":true,"StorageType":"gp2","Tags":null,"TdeCredentialArn":null,"TdeCredentialPassword":null,"Timezone":null,"VpcSecurityGroupIds":null}');
+		end if;
+
+		if (select count(*) from plans where plan = '0b74a5e8-ad17-4209-bc61-a08520c3cc1f') = 0 then
+			insert into plans
+				(plan, service, name, human_name, description, version, type, scheme, categories, cost_cents, preprovision, attributes, provider, provider_private_details)
+			values
+				('0b74a5e8-ad17-4209-bc61-a08520c3cc1f', '01bb60d2-f2bb-64c0-4c8b-ead731a690bd', 'premium-t3-0',  'Premium-T3-0 (10.4)', 'Postgres 10.4 - 2xCPU 2GB Ram 20GB Storage (T3 Instance)', '10.4', 'postgres', 'postgres', 'Data Stores', 2000,  0, '{"compliance":"", "supports_extensions":true,  "ram":"2GB",   "database_replicas":true,  "database_logs":true,  "restartable":true,  "row_limits":null, "storage_capacity":"20GB",  "data_clips":true,  "connection_limit":null, "high_availability":false,  "rollback":"14 days", "encryption_at_rest":true, "high_speed_ssd":true,  "burstable_performance":false, "dedicated":true  }', 'aws-instance',    '{"AllocatedStorage":20,"AutoMinorVersionUpgrade":true,"AvailabilityZone":null,"BackupRetentionPeriod":14,"CharacterSetName":null,"CopyTagsToSnapshot":true,"DBClusterIdentifier":null,"DBInstanceClass":"db.t3.small","DBInstanceIdentifier":null,"DBName":null,"DBParameterGroupName":null,"DBSecurityGroups":null,"DBSubnetGroupName":"rds-postgres-subnet-group","Domain":null,"DomainIAMRoleName":null,"EnableCloudwatchLogsExports":null,"EnableIAMDatabaseAuthentication":null,"EnablePerformanceInsights":false,"Engine":"postgres","EngineVersion":"10.4","Iops":null,"KmsKeyId":null,"LicenseModel":null,"MasterUserPassword":null,"MasterUsername":null,"MonitoringInterval":null,"MonitoringRoleArn":null,"MultiAZ":false,"OptionGroupName":null,"PerformanceInsightsKMSKeyId":null,"PerformanceInsightsRetentionPeriod":null,"Port":null,"PreferredBackupWindow":null,"PreferredMaintenanceWindow":null,"ProcessorFeatures":null,"PromotionTier":null,"PubliclyAccessible":false,"StorageEncrypted":true,"StorageType":"gp2","Tags":null,"TdeCredentialArn":null,"TdeCredentialPassword":null,"Timezone":null,"VpcSecurityGroupIds":null}');
+		end if;
+
 end
 $$
 `
