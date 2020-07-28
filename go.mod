@@ -1,0 +1,56 @@
+module github.com/akkeris/database-broker
+
+go 1.12
+
+require (
+	cloud.google.com/go v0.32.0
+	github.com/aws/aws-sdk-go v1.15.69
+	github.com/beorn7/perks v0.0.0-20180321164747-3a771d992973
+	github.com/ghodss/yaml v1.0.0
+	github.com/go-sql-driver/mysql v1.4.1
+	github.com/gogo/protobuf v1.1.1
+	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
+	github.com/golang/protobuf v1.2.0
+	github.com/google/btree v1.0.0
+	github.com/google/gofuzz v0.0.0-20170612174753-24818f796faf
+	github.com/googleapis/gnostic v0.2.0
+	github.com/gopherjs/gopherjs v0.0.0-20181103185306-d547d1d9531e
+	github.com/gorilla/context v1.1.1
+	github.com/gorilla/mux v1.6.2
+	github.com/gregjones/httpcache v0.0.0-20180305231024-9cad4c3443a7
+	github.com/imdario/mergo v0.3.6
+	github.com/jmespath/go-jmespath v0.0.0-20160202185014-0b12d6b521d8
+	github.com/json-iterator/go v1.1.5
+	github.com/jtolds/gls v4.20.0+incompatible
+	github.com/kubernetes/client-go v6.0.0+incompatible
+	github.com/lib/pq v1.0.0
+	github.com/matttproud/golang_protobuf_extensions v1.0.1
+	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd
+	github.com/modern-go/reflect2 v0.0.0-20180701023420-4b7aa43c6742
+	github.com/petar/GoLLRB v0.0.0-20130427215148-53be0d36a84c
+	github.com/peterbourgon/diskv v2.0.1+incompatible
+	github.com/pmorie/go-open-service-broker-client v0.0.0-20180928143052-79b374a2302f
+	github.com/pmorie/osb-broker-lib v0.0.0-20180423193413-f4ca270ef323
+	github.com/prometheus/client_golang v0.8.0
+	github.com/prometheus/client_model v0.0.0-20180712105110-5c3871d89910
+	github.com/prometheus/common v0.0.0-20181020173914-7e9e6cabbd39
+	github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d
+	github.com/shawn-hurley/osb-broker-k8s-lib v0.0.0-20180430125558-bed19ac36ffe
+	github.com/smartystreets/assertions v0.0.0-20180301161246-7678a5452ebe
+	github.com/smartystreets/goconvey v0.0.0-20170602164621-9e8dc3f972df
+	github.com/spf13/pflag v1.0.3
+	github.com/stackimpact/stackimpact-go v2.3.10+incompatible
+	golang.org/x/crypto v0.0.0-20181106171534-e4dc69e5b2fd
+	golang.org/x/net v0.0.0-20181106065722-10aee1819953
+	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288
+	golang.org/x/sys v0.0.0-20181106135930-3a76605856fd
+	golang.org/x/text v0.3.0
+	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
+	google.golang.org/api v0.0.0-20181102150758-04bb50b6b83d
+	google.golang.org/appengine v1.3.0
+	gopkg.in/inf.v0 v0.9.1
+	gopkg.in/yaml.v2 v2.2.1
+	k8s.io/api v0.0.0-20181102122915-de5c567eef5c
+	k8s.io/apimachinery v0.0.0-20181101131016-0aa9751e8aaf
+	k8s.io/client-go v9.0.0+incompatible
+)
