@@ -74,6 +74,9 @@ func (b *BusinessLogic) ActionGetReplica(InstanceID string, vars map[string]stri
 		return nil, NotFound()
 	}
 	replica.Password = ""; // Do not return sensitive information from an action end point.
+	if err != nil {
+		return nil, err
+	}
 	return replica, nil
 }
 
@@ -149,7 +152,6 @@ func (b *BusinessLogic) ActionDeleteReplica(InstanceID string, vars map[string]s
 		glog.Errorf("Unable to delete replica: %s\n", err.Error())
 		return nil, InternalServerError()
 	}
-
 	readDbReplica.Password = ""; // Do not return sensitive information from action end points.
 	return readDbReplica, nil
 }
