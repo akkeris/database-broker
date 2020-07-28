@@ -67,9 +67,13 @@ func (b *BusinessLogic) ActionGetReplica(InstanceID string, vars map[string]stri
 		return nil, NotFound()
 	}
 	replica, err := b.storage.GetReplicas(dbInstance)
-	if err != nil {
+	if err != nil && err.Error() != "sql: no rows in result set" {
+		glog.Errorf("Unable to get replicas, searching storage returned an error: %s\n", err.Error())
 		return nil, err
+	} else if err != nil && err.Error() == "sql: no rows in result set" {
+		return nil, NotFound()
 	}
+	replica.Password = ""; // Do not return sensitive information from an action end point.
 	return replica, nil
 }
 
@@ -119,7 +123,7 @@ func (b *BusinessLogic) ActionCreateReplica(InstanceID string, vars map[string]s
 			glog.Errorf("Error: Unable to schedule resync from provider! (%s): %s\n", newDbInstance.Name, err.Error())
 		}
 	}
-
+	newDbInstance.Password = ""; // Do not return sensitive information from action end points.
 	return newDbInstance, nil
 }
 
@@ -146,6 +150,7 @@ func (b *BusinessLogic) ActionDeleteReplica(InstanceID string, vars map[string]s
 		return nil, InternalServerError()
 	}
 
+	readDbReplica.Password = ""; // Do not return sensitive information from action end points.
 	return readDbReplica, nil
 }
 
