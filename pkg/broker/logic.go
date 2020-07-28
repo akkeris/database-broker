@@ -66,10 +66,11 @@ func (b *BusinessLogic) ActionGetReplica(InstanceID string, vars map[string]stri
 	if err != nil {
 		return nil, NotFound()
 	}
-	if _, err = b.storage.GetReplicas(dbInstance); err != nil {
-		return nil, NotFound()
+	replica, err := b.storage.GetReplicas(dbInstance)
+	if err != nil {
+		return nil, err
 	}
-	return map[string]interface{}{"status": "OK"}, nil
+	return replica, nil
 }
 
 func (b *BusinessLogic) ActionCreateReplica(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
@@ -119,7 +120,7 @@ func (b *BusinessLogic) ActionCreateReplica(InstanceID string, vars map[string]s
 		}
 	}
 
-	return map[string]interface{}{"status": "OK"}, nil
+	return newDbInstance, nil
 }
 
 func (b *BusinessLogic) ActionDeleteReplica(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
@@ -145,7 +146,7 @@ func (b *BusinessLogic) ActionDeleteReplica(InstanceID string, vars map[string]s
 		return nil, InternalServerError()
 	}
 
-	return map[string]interface{}{"status": "OK"}, nil
+	return readDbReplica, nil
 }
 
 func (b *BusinessLogic) ActionListRoles(InstanceID string, vars map[string]string, context *broker.RequestContext) (interface{}, error) {
