@@ -366,7 +366,6 @@ func RotatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 	defer db.Close()
 	password := RandomString(10)
 	if _, err = db.Exec("alter user " + role + " WITH PASSWORD '" + password + "'"); err != nil {
-		fmt.Println("alter user " + role + " WITH PASSWORD '" + password + "'")
 		return DatabaseUrlSpec{}, err
 	}
 	return DatabaseUrlSpec{
