@@ -267,7 +267,7 @@ func (b *BusinessLogic) ActionDeleteRole(InstanceID string, vars map[string]stri
 	}
 
 	if err = provider.DeleteReadOnlyUser(dbInstance, role); err != nil {
-		glog.Errorf("Unable to rotate password on read only role, RotatePasswordReadOnlyUser failed: %s\n", err.Error())
+		glog.Errorf("Unable to delete read only user, DeleteReadOnlyUser failed: %s\n", err.Error())
 		return nil, InternalServerError()
 	}
 	if err = b.storage.DeleteRole(dbInstance, role); err != nil {

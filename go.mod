@@ -36,14 +36,14 @@ require (
 	github.com/prometheus/common v0.0.0-20181020173914-7e9e6cabbd39
 	github.com/prometheus/procfs v0.0.0-20181005140218-185b4288413d
 	github.com/shawn-hurley/osb-broker-k8s-lib v0.0.0-20180430125558-bed19ac36ffe
-	github.com/smartystreets/assertions v0.0.0-20180301161246-7678a5452ebe
-	github.com/smartystreets/goconvey v0.0.0-20170602164621-9e8dc3f972df
+	github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d
+	github.com/smartystreets/goconvey v1.6.4
 	github.com/spf13/pflag v1.0.3
 	github.com/stackimpact/stackimpact-go v2.3.10+incompatible
-	golang.org/x/crypto v0.0.0-20181106171534-e4dc69e5b2fd
-	golang.org/x/net v0.0.0-20181106065722-10aee1819953
+	golang.org/x/crypto v0.0.0-20190308221718-c2843e01d9a2
+	golang.org/x/net v0.0.0-20190311183353-d8887717615a
 	golang.org/x/oauth2 v0.0.0-20181106182150-f42d05182288
-	golang.org/x/sys v0.0.0-20181106135930-3a76605856fd
+	golang.org/x/sys v0.0.0-20190215142949-d0b11bdaac8a
 	golang.org/x/text v0.3.0
 	golang.org/x/time v0.0.0-20180412165947-fbb02b2291d2
 	google.golang.org/api v0.0.0-20181102150758-04bb50b6b83d
