@@ -7,6 +7,7 @@ import (
 	_ "github.com/lib/pq"
 	"net/url"
 	"strings"
+	"fmt"
 )
 
 // provider=shared-postgres in database
@@ -316,22 +317,24 @@ func CreatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string) (Dat
 	}
 
 	statement := `
-	do $$
+	do $do$
+	declare sch text;
 	begin
 	  create user $1 with login encrypted password '$2';
-	  grant select on all tables in schema public TO $1;
-	  grant usage, select on all sequences in schema public TO $1;
 	  grant connect on database $3 to $1;
-	  alter default privileges in schema public GRANT SELECT ON TABLES TO $1;
-	  REVOKE CREATE ON SCHEMA public FROM $1;
-	  GRANT USAGE ON SCHEMA public TO $1;
-
 	  grant $5 to $1;
-
-	  ALTER DEFAULT PRIVILEGES FOR USER $4 IN SCHEMA public GRANT SELECT ON SEQUENCES TO $1;
-	  ALTER DEFAULT PRIVILEGES FOR USER $4 IN SCHEMA public GRANT SELECT ON TABLES TO $1;
+	  
+	  for sch in select nspname from pg_namespace where nspname not like 'pg_toast%' and nspname not like 'pg_temp%' and nspname != 'information_schema' and nspname != 'pg_catalog'
+	  loop
+		  execute format($$ grant usage on schema %I to $1 $$, sch);
+		  execute format($$ revoke create on schema %I from $1 $$, sch);
+		  execute format($$ grant select on all tables in schema %I to $1 $$, sch);
+		  execute format($$ grant usage, select on all sequences in schema %I to $1 $$, sch);
+		  execute format($$ alter default privileges for user $4 in schema %I grant select on tables to $1 $$, sch);
+		  execute format($$ alter default privileges for user $4 in schema %I grant select on sequences to $1 $$, sch);
+	  end loop;
 	end 
-	$$;
+	$do$;
 	`
 
 	app_username := dbInstance.Username
@@ -363,6 +366,7 @@ func RotatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 	defer db.Close()
 	password := RandomString(10)
 	if _, err = db.Exec("alter user " + role + " WITH PASSWORD '" + password + "'"); err != nil {
+		fmt.Println("alter user " + role + " WITH PASSWORD '" + password + "'")
 		return DatabaseUrlSpec{}, err
 	}
 	return DatabaseUrlSpec{
@@ -374,19 +378,22 @@ func RotatePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role
 
 func DeletePostgresReadOnlyRole(dbInstance *DbInstance, databaseUri string, role string) error {
 	statement := `
-	do $$
+	do $do$
+	declare sch text;
 	begin
 	  perform pg_terminate_backend(pid) from pg_stat_activity where usename = '$1';
-	  ALTER DEFAULT PRIVILEGES FOR USER $3 IN SCHEMA public REVOKE SELECT ON SEQUENCES FROM $1;
-	  ALTER DEFAULT PRIVILEGES FOR USER $3 IN SCHEMA public REVOKE SELECT ON TABLES FROM $1;
-	  revoke usage on schema public FROM $1;
+	  for sch in select nspname from pg_namespace where nspname not like 'pg_toast%' and nspname not like 'pg_temp%' and nspname != 'information_schema' and nspname != 'pg_catalog'
+	  loop
+		  execute format($$ revoke usage on schema %I from $1 $$, sch);
+		  execute format($$ revoke select on all tables in schema %I from $1 $$, sch);
+		  execute format($$ revoke usage, select on all sequences in schema %I from $1 $$, sch);
+		  execute format($$ alter default privileges for user $3 in schema %I revoke select on tables from $1 $$, sch);
+		  execute format($$ alter default privileges for user $3 in schema %I revoke select on sequences from $1 $$, sch);
+	  end loop;
 	  revoke connect on database $2 from $1;
-	  revoke select on all tables in schema public from $1;
-	  revoke usage, select on all sequences in schema public from $1;
-	  alter default privileges in schema public REVOKE SELECT ON TABLES FROM $1;
 	  drop user $1;
 	end 
-	$$;
+	$do$;
 	`
 	db, err := sql.Open("postgres", databaseUri)
 	if err != nil {
