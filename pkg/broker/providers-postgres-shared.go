@@ -7,7 +7,6 @@ import (
 	_ "github.com/lib/pq"
 	"net/url"
 	"strings"
-	"fmt"
 )
 
 // provider=shared-postgres in database
