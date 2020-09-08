@@ -26,7 +26,7 @@ jobs:
             mkdir -p /go/src/github.com/akkeris/
             cp -a -p . /go/src/github.com/akkeris/database-broker
             cd /go/src/github.com/akkeris/database-broker
-            MYSQL_URL=mysql://root:circle_test@127.0.0.1:3306/mysql TEST_SHARED_MYSQL=true TEST_SHARED_POSTGRES=true GO111MODULE=on PG_HOBBY_9_URI=postgres://root:root@localhost:5432/test\?sslmode=disable PG_HOBBY_10_URI=postgres://root:root@localhost:5432/test\?sslmode=disable DATABASE_URL=postgres://root:root@localhost:5432/test\?sslmode=disable NAME_PREFIX=testing make coverage
+            MYSQL_URL=mysql://root:circle_test@127.0.0.1:3306/mysql TEST_SHARED_MYSQL=true TEST_SHARED_POSTGRES=true GO111MODULE=on PG_HOBBY_9_URI=postgres://root:root@localhost:5432/test\?sslmode=disable PG_HOBBY_10_URI=postgres://root:root@localhost:5432/test\?sslmode=disable PG_HOBBY_12_URI=postgres://root:root@localhost:5432/test\?sslmode=disable DATABASE_URL=postgres://root:root@localhost:5432/test\?sslmode=disable NAME_PREFIX=testing make coverage
             go get github.com/schrej/godacov
             godacov -t $CODACY_PROJECT_TOKEN -r ./cover.out -c ${CIRCLE_SHA1}
       - run:

@@ -79,6 +79,7 @@ func TestPostgresProvision(t *testing.T) {
 	Convey("Given a fresh provisioner.", t, func() {
 		os.Setenv("PG_HOBBY_9_URI", os.Getenv("DATABASE_URL"))
 		os.Setenv("PG_HOBBY_10_URI", os.Getenv("DATABASE_URL"))
+		os.Setenv("PG_HOBBY_12_URI", os.Getenv("DATABASE_URL"))
 		logic, err = NewBusinessLogic(context.TODO(), Options{DatabaseUrl: os.Getenv("DATABASE_URL"), NamePrefix: "test"})
 		So(err, ShouldBeNil)
 		So(logic, ShouldNotBeNil)
