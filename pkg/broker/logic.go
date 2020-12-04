@@ -233,7 +233,7 @@ func (b *BusinessLogic) ActionRotateRole(InstanceID string, vars map[string]stri
 	}
 
 	if _, err = b.storage.UpdateRole(dbInstance, role, dbUrl.Password); err != nil {
-		glog.Errorf("Error: Unable to record password change for database %s and read only user %s with new password %s\n", dbInstance.Name, role, dbUrl.Password)
+		glog.Errorf("Error: Unable to record password change for database %s and read only user %s\n", dbInstance.Name, role)
 		return nil, InternalServerError()
 	}
 
