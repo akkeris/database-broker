@@ -255,7 +255,7 @@ func UpgradeAcrossProviders(storage Storage, fromDb *DbInstance, toPlanId string
 	}
 	targetUrl := toDb.Scheme + "://" + toDb.Username + ":" + toDb.Password + "@" + toDb.Endpoint
 
-	cmd := exec.Command("sh", "-c", "set -o pipefail ; PGPASSWORD=\""+fromDb.Password+"\" pg_dump -xOc -d "+fromDb.Name+" -h "+v[0]+extras+" -U "+fromDb.Username+" | psql "+targetUrl)
+	cmd := exec.Command("sh", "-c", "PGPASSWORD=\""+fromDb.Password+"\" pg_dump -xOc -d "+fromDb.Name+" -h "+v[0]+extras+" -U "+fromDb.Username+" | psql "+targetUrl)
 	var out bytes.Buffer
 	cmd.Stderr = &out
 	if err = cmd.Run(); err != nil {
